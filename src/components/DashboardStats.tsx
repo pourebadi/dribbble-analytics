@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Shot, Profile } from '../types.ts';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, LineChart, Line, ComposedChart, Legend, ScatterChart, Scatter, ZAxis, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Treemap, PieChart, Pie, Cell } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, LineChart, Line, ComposedChart, Legend, ScatterChart, Scatter, ZAxis, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ReferenceLine, PieChart, Pie, Cell } from 'recharts';
 import { startOfWeek, startOfMonth, format, parseISO } from 'date-fns';
 import { DateRangePicker } from './DateRangePicker.tsx';
 import { 
@@ -27,27 +27,6 @@ import {
   Download,
   Info
 } from 'lucide-react';
-
-// Custom treemap cell — rounded tiles with inline labels
-const TreemapCell = (props: any) => {
-  const { x, y, width, height, name, fill, size } = props;
-  if (!width || !height || width <= 2 || height <= 2) return null;
-  return (
-    <g>
-      <rect x={x + 1.5} y={y + 1.5} width={Math.max(0, width - 3)} height={Math.max(0, height - 3)} rx={7} fill={fill || '#EC4899'} />
-      {width > 72 && height > 40 && (
-        <>
-          <text x={x + 9} y={y + 19} fontSize={10} fontWeight={800} fill="#ffffff">
-            {String(name || '').slice(0, Math.max(4, Math.floor((width - 16) / 6.5)))}
-          </text>
-          <text x={x + 9} y={y + 32} fontSize={9} fontWeight={600} fill="rgba(255,255,255,0.85)">
-            {Number(size || 0).toLocaleString()} views
-          </text>
-        </>
-      )}
-    </g>
-  );
-};
 
 export function DashboardStats({ 
   shots, 
@@ -101,6 +80,33 @@ export function DashboardStats({
       return true;
     });
   }, [shots]);
+
+    // Project/client extraction from shot titles: use the last two words when
+  // that pair repeats across 2+ shots (e.g. "HOP VPN", "Heli Technology"),
+  // otherwise the last word (e.g. "Dizno", "Inhusk").
+  const projectOf = useMemo(() => {
+    const words = (t: string) => t.trim().split(/\s+/);
+    const lastTwoFreq: Record<string, number> = {};
+    validShots.forEach(sh => {
+      const p = words(getShotTitle(sh));
+      if (p.length >= 2) {
+        const k = p.slice(-2).join(' ');
+        lastTwoFreq[k] = (lastTwoFreq[k] || 0) + 1;
+      }
+    });
+    const map = new Map<string, string>();
+    validShots.forEach(sh => {
+      const p = words(getShotTitle(sh));
+      let proj = p[p.length - 1] || 'Other';
+      if (p.length >= 2) {
+        const two = p.slice(-2).join(' ');
+        if (lastTwoFreq[two] >= 2) proj = two;
+      }
+      map.set(sh.url, proj);
+    });
+    return map;
+  }, [validShots]);
+
 
   // General Engagement Metrics
   const stats = useMemo(() => {
@@ -513,26 +519,6 @@ export function DashboardStats({
       : rangePreset === 'custom' ? `${startStr} → ${endStr}`
       : `last ${presetDays[rangePreset]} day${presetDays[rangePreset] > 1 ? 's' : ''}`;
 
-    // ---- Portfolio Map (treemap): views by shot, colored by engagement rate ----
-    const engOf = (sh: Shot) => (sh.views ? (((sh.likes || 0) + (sh.saves || 0) + (sh.comments || 0)) / sh.views) : 0);
-    const engVals = validShots.map(engOf);
-    const engMin = Math.min(...engVals, 0);
-    const engMax = Math.max(...engVals, 0.0001);
-    const mixColor = (t: number) => {
-      const a = [96, 165, 250]; // blue (low engagement)
-      const b = [236, 72, 153]; // pink (high engagement)
-      const c = a.map((v, i2) => Math.round(v + (b[i2] - v) * Math.min(1, Math.max(0, t))));
-      return `rgb(${c[0]},${c[1]},${c[2]})`;
-    };
-    const treemapData = [...validShots]
-      .sort((a, b) => (b.views || 0) - (a.views || 0))
-      .slice(0, 24)
-      .map(sh => ({
-        name: getShotTitle(sh),
-        size: sh.views || 0,
-        fill: mixColor((engOf(sh) - engMin) / (engMax - engMin || 1)),
-      }));
-
     // ---- Engagement mix donut ----
     const engagementMix = [
       { name: 'Likes', value: stats.likes, color: '#EA4C89' },
@@ -617,6 +603,61 @@ export function DashboardStats({
           url: shot.url,
         }));
     };
+
+    // ---- Project-level combined analytics (project x reach x engagement x range) ----
+    const gainedViewsByUrl = new Map<string, number>(shotGrowthList.map(x => [x.shot.url, x.growth.views || 0] as [string, number]));
+    const projAgg: Record<string, { shots: number; views: number; likes: number; saves: number; comments: number; gained: number }> = {};
+    validShots.forEach(sh => {
+      const proj = projectOf.get(sh.url) || 'Other';
+      if (!projAgg[proj]) projAgg[proj] = { shots: 0, views: 0, likes: 0, saves: 0, comments: 0, gained: 0 };
+      const a = projAgg[proj];
+      a.shots += 1;
+      a.views += sh.views || 0;
+      a.likes += sh.likes || 0;
+      a.saves += sh.saves || 0;
+      a.comments += sh.comments || 0;
+      a.gained += gainedViewsByUrl.get(sh.url) || 0;
+    });
+    const PROJECT_COLORS = ['#EA4C89', '#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#06B6D4', '#94A3B8'];
+    const projectRows = Object.entries(projAgg)
+      .map(([name, a]) => ({
+        name, ...a,
+        avgViews: Math.round(a.views / a.shots),
+        engRate: a.views > 0 ? +(((a.likes + a.saves + a.comments) / a.views) * 100).toFixed(2) : 0,
+        color: '',
+      }))
+      .sort((x, y) => y.views - x.views);
+    projectRows.forEach((r, i2) => { r.color = PROJECT_COLORS[i2 % PROJECT_COLORS.length]; });
+    const avgOfAvgViews = projectRows.length ? projectRows.reduce((a, r) => a + r.avgViews, 0) / projectRows.length : 0;
+    const avgEngRate = projectRows.length ? projectRows.reduce((a, r) => a + r.engRate, 0) / projectRows.length : 0;
+    const maxProjGained = Math.max(1, ...projectRows.map(r => r.gained));
+
+    // Stacked composition: cumulative views per project across the selected range
+    const topProjNames = projectRows.slice(0, 6).map(r => r.name);
+    const stackNames = projectRows.length > 6 ? [...topProjNames, 'Other'] : topProjNames;
+    const projColorMap: Record<string, string> = {};
+    stackNames.forEach((n, i2) => {
+      projColorMap[n] = n === 'Other' ? '#94A3B8' : (projectRows.find(r => r.name === n)?.color || PROJECT_COLORS[i2 % PROJECT_COLORS.length]);
+    });
+    const seriesDates = inRange.map(h => h.date).slice(-60);
+    const stackBase: Record<string, Record<string, number>> = {};
+    seriesDates.forEach(d => { stackBase[d] = Object.fromEntries(stackNames.map(n => [n, 0])); });
+    validShots.forEach(sh => {
+      const raw = projectOf.get(sh.url) || 'Other';
+      const proj = topProjNames.includes(raw) ? raw : (stackNames.includes('Other') ? 'Other' : null);
+      if (!proj) return;
+      const hist = (Array.isArray(sh.history) ? sh.history : []).filter((h: any) => h && h.date).sort((a: any, b: any) => (a.date < b.date ? -1 : 1));
+      let hi = 0; let lastV = 0;
+      for (const d of seriesDates) {
+        while (hi < hist.length && hist[hi].date <= d) { lastV = hist[hi].views || 0; hi++; }
+        stackBase[d][proj] += lastV;
+      }
+    });
+    const projectStackData = seriesDates.map(d => {
+      let label = d;
+      try { label = format(parseISO(d), 'MMM dd'); } catch { /* keep iso */ }
+      return { name: label, ...stackBase[d] };
+    });
 
     // ---- Tag performance (marketing insight) ----
     const tagAgg: Record<string, { views: number; likes: number; count: number }> = {};
@@ -989,24 +1030,53 @@ export function DashboardStats({
           <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
             <div className="mb-4 flex justify-between items-end">
               <div>
-                <h4 className="font-bold text-slate-800 text-sm">Portfolio Map</h4>
-                <p className="text-[11px] text-slate-500">Tile size = total views · color = engagement quality (blue → pink)</p>
+                <h4 className="font-bold text-slate-800 text-sm">Project Performance Matrix</h4>
+                <p className="text-[11px] text-slate-500">Each bubble = a client project · X: avg views per shot · Y: engagement rate · size: number of shots</p>
               </div>
-              <div className="flex items-center gap-1.5 text-[9px] font-bold text-slate-400">
-                <span className="w-3 h-3 rounded" style={{ background: 'rgb(96,165,250)' }} /> low eng
-                <span className="w-3 h-3 rounded ml-1" style={{ background: 'rgb(236,72,153)' }} /> high eng
-              </div>
+              <div className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md border border-slate-200">Strategy</div>
             </div>
             <div className="h-[300px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <Treemap data={treemapData} dataKey="size" nameKey="name" stroke="#fff" isAnimationActive={false} content={<TreemapCell />}>
+                <ScatterChart margin={{ top: 15, right: 25, left: -5, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis type="number" dataKey="avgViews" name="Avg views / shot" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#94a3b8' }}
+                    label={{ value: 'Avg views per shot →', position: 'insideBottomRight', offset: -2, fontSize: 9, fill: '#94a3b8', fontWeight: 700 }} />
+                  <YAxis type="number" dataKey="engRate" name="Engagement %" unit="%" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#94a3b8' }}
+                    label={{ value: 'Engagement % ↑', angle: -90, position: 'insideLeft', fontSize: 9, fill: '#94a3b8', fontWeight: 700 }} />
+                  <ZAxis type="number" dataKey="shots" range={[120, 700]} name="Shots" />
+                  <ReferenceLine x={avgOfAvgViews} stroke="#cbd5e1" strokeDasharray="4 4" />
+                  <ReferenceLine y={avgEngRate} stroke="#cbd5e1" strokeDasharray="4 4" />
                   <Tooltip
+                    cursor={{ strokeDasharray: '3 3' }}
                     contentStyle={{ borderRadius: '12px', border: '1px solid #f1f5f9', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', background: '#fff', fontSize: '12px' }}
-                    formatter={(v: any) => [`${Number(v).toLocaleString()} views`, '']}
-                    labelFormatter={() => ''}
+                    content={({ payload }: any) => {
+                      const d = payload && payload[0] && payload[0].payload;
+                      if (!d) return null;
+                      return (
+                        <div className="bg-white border border-slate-100 rounded-xl shadow-lg p-3 text-xs">
+                          <p className="font-black text-slate-800 mb-1 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full" style={{ background: d.color }} />{d.name}
+                          </p>
+                          <p className="text-slate-500 font-semibold">{d.shots} shots · {d.views.toLocaleString()} total views</p>
+                          <p className="text-slate-500 font-semibold">{d.avgViews.toLocaleString()} avg views/shot · {d.engRate}% engagement</p>
+                          <p className="text-emerald-600 font-bold mt-0.5">+{d.gained.toLocaleString()} views in {rangeWindowLabel}</p>
+                        </div>
+                      );
+                    }}
                   />
-                </Treemap>
+                  <Scatter data={projectRows} isAnimationActive={false}>
+                    {projectRows.map((r: any) => <Cell key={r.name} fill={r.color} fillOpacity={0.85} stroke="#fff" strokeWidth={2} />)}
+                  </Scatter>
+                </ScatterChart>
               </ResponsiveContainer>
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 pt-3 border-t border-slate-100">
+              {projectRows.map((r: any) => (
+                <span key={r.name} className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
+                  <span className="w-2 h-2 rounded-full" style={{ background: r.color }} />{r.name}
+                </span>
+              ))}
+              <span className="text-[9px] text-slate-400 font-semibold ml-auto">top-right quadrant = star projects (above-average reach and engagement)</span>
             </div>
           </div>
 
@@ -1051,6 +1121,90 @@ export function DashboardStats({
               ))}
             </div>
           </div>
+        </div>
+
+        {/* ===== Project League Table ===== */}
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+          <div className="p-5 border-b border-slate-100 bg-slate-50/40 flex justify-between items-end">
+            <div>
+              <h4 className="font-bold text-slate-800 text-sm">Project League</h4>
+              <p className="text-[11px] text-slate-500">Every client project across reach, quality, and momentum — momentum uses the selected range ({rangeWindowLabel})</p>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50/50 border-b border-slate-100 text-slate-400 font-bold text-[10px] uppercase tracking-wider">
+                <tr>
+                  <th className="px-5 py-3">Project</th>
+                  <th className="px-5 py-3 text-center">Shots</th>
+                  <th className="px-5 py-3 text-right">Total Views</th>
+                  <th className="px-5 py-3 text-right">Avg / Shot</th>
+                  <th className="px-5 py-3 text-right">Engagement</th>
+                  <th className="px-5 py-3 text-right w-[220px]">Views Gained ({rangeWindowLabel})</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {projectRows.map((r: any, idx: number) => (
+                  <tr key={r.name} className="hover:bg-slate-50/40 transition-colors">
+                    <td className="px-5 py-3">
+                      <span className="flex items-center gap-2 font-bold text-slate-700">
+                        <span className={`text-[10px] font-black font-mono ${idx === 0 ? 'text-pink-500' : 'text-slate-300'}`}>{idx + 1}</span>
+                        <span className="w-2 h-2 rounded-full" style={{ background: r.color }} />
+                        {r.name}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-center font-semibold text-slate-500 font-mono">{r.shots}</td>
+                    <td className="px-5 py-3 text-right font-black text-slate-800 font-mono">{r.views.toLocaleString()}</td>
+                    <td className="px-5 py-3 text-right font-bold text-slate-600 font-mono">{r.avgViews.toLocaleString()}</td>
+                    <td className="px-5 py-3 text-right">
+                      <span className={`font-black font-mono ${r.engRate >= avgEngRate ? 'text-emerald-600' : 'text-slate-500'}`}>{r.engRate}%</span>
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2 justify-end">
+                        <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full" style={{ width: `${Math.max(2, (r.gained / maxProjGained) * 100)}%`, background: r.color }} />
+                        </div>
+                        <span className="font-black text-slate-700 font-mono w-16 text-right">+{r.gained.toLocaleString()}</span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* ===== Views Composition by Project over time ===== */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <div className="mb-5 flex justify-between items-end">
+            <div>
+              <h4 className="font-bold text-slate-800 text-sm">Views Composition by Project</h4>
+              <p className="text-[11px] text-slate-500">Which projects carry the portfolio's total views over time — stacked, {rangeWindowLabel}</p>
+            </div>
+          </div>
+          {projectStackData.length < 2 ? (
+            <div className="h-[240px] flex items-center justify-center text-xs text-slate-400 font-medium">
+              This chart needs 2+ logged days in the selected range — it fills in as daily syncs accumulate.
+            </div>
+          ) : (
+            <div className="h-[280px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={projectStackData} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#94a3b8' }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#94a3b8' }} />
+                  <Tooltip
+                    contentStyle={{ borderRadius: '12px', border: '1px solid #f1f5f9', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', background: '#fff', fontSize: '12px' }}
+                    formatter={(v: any, n: any) => [Number(v).toLocaleString(), n]}
+                  />
+                  <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '8px' }} />
+                  {stackNames.map(n => (
+                    <Area key={n} type="monotone" dataKey={n} stackId="1" stroke={projColorMap[n]} strokeWidth={1.5} fill={projColorMap[n]} fillOpacity={0.55} />
+                  ))}
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
 
         {/* ===== Top Shots Rankings (per selected range) ===== */}
