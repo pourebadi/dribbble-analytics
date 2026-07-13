@@ -277,118 +277,116 @@ export function ProfileManager({
 
   return (
     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden mb-6">
-      <div className="p-5 flex flex-col md:flex-row items-center justify-between gap-6">
-        <div className="flex items-center gap-6 flex-1 min-w-0">
+      {/* ===== Header row: identity + actions ===== */}
+      <div className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex items-center gap-4 min-w-0">
           <div className="w-12 h-12 rounded-xl bg-pink-50 border border-pink-100 flex items-center justify-center flex-shrink-0">
             <Shield className="w-6 h-6 text-pink-500" />
           </div>
-          <div className="space-y-1.5 flex-1 min-w-0">
-            <div className="flex items-center gap-3">
-              <h4 className="text-lg font-extrabold text-slate-800 tracking-tight flex items-center gap-2">
-                Heli Studio Enterprise Node
-                <a 
-                  href={targetUrl} 
-                  target="_blank" 
-                  rel="noreferrer"
-                  className="text-slate-400 hover:text-pink-500 transition-colors"
-                  title="Open Dribbble Page"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                </a>
-              </h4>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h4 className="text-lg font-extrabold text-slate-800 tracking-tight">Heli Studio Enterprise Node</h4>
               {getStatusBadge()}
             </div>
-            
-            {profile?.status === 'scraping' ? (
-              <div className="flex items-center gap-3 w-full max-w-md">
-                <div className="flex-1 bg-slate-100 h-2 rounded-full overflow-hidden relative">
-                  {profile.scrapedCount !== undefined && profile.totalCount !== undefined && profile.totalCount > 0 ? (
-                    <div 
-                      className="bg-pink-500 h-full rounded-full transition-all duration-300" 
-                      style={{ width: `${(profile.scrapedCount / profile.totalCount) * 100}%` }}
-                    />
-                  ) : (
-                    <div className="bg-pink-500 h-full rounded-full w-1/3 animate-infinite-scroll" />
-                  )}
-                </div>
-                <span className="text-[11px] text-slate-500 font-mono font-semibold whitespace-nowrap">
-                  {profile.progressMessage || 'Contacting scraper...'}
-                </span>
-              </div>
-            ) : (
-              <p className="text-xs text-slate-500 font-medium flex items-center gap-2">
-                <span className="font-mono bg-slate-50 px-2 py-0.5 rounded text-slate-600 border border-slate-200">{targetUrl}</span>
-                <span className="text-slate-300">•</span>
-                <span>Last secure sync: <strong className="font-mono text-slate-700">{getLastScrapedTime()}</strong></span>
-              </p>
-            )}
+            <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+              Dribbble performance tracker · {IS_STATIC ? 'auto-syncs daily via GitHub Actions' : 'local server mode'}
+            </p>
           </div>
         </div>
-        
-        <div className="flex items-center gap-3">
+
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button
             onClick={() => setShowLogs(!showLogs)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
-              showLogs 
-                ? 'bg-slate-900 border-slate-800 text-white' 
+            className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all border ${
+              showLogs
+                ? 'bg-slate-900 border-slate-800 text-white'
                 : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
             }`}
           >
             <Terminal className="w-3.5 h-3.5" />
-            {showLogs ? 'Hide Console' : 'Show Console'}
+            Console
             {logs.length > 0 && (
-              <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${showLogs ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
+              <span className={`px-1.5 rounded-full text-[10px] font-mono ${showLogs ? 'bg-slate-700 text-slate-200' : 'bg-slate-100 text-slate-500'}`}>
                 {logs.length}
               </span>
             )}
           </button>
 
           {IS_STATIC ? (
-            <div className="flex flex-col items-end gap-2">
-              <div className="flex items-center gap-2">
-                <a
-                  href={GITHUB_REPO ? `https://github.com/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}` : '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 bg-slate-100 border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-200 transition-all"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  Actions
-                </a>
-                <button
-                  onClick={handleGithubDispatch}
-                  disabled={ghState === 'dispatching' || ghState === 'running'}
-                  className="flex items-center justify-center gap-2 pink-gradient text-white font-bold py-2.5 px-6 rounded-xl text-sm hover:brightness-105 active:scale-95 disabled:opacity-50 transition-all shadow-md shadow-pink-200/50"
-                >
-                  <RefreshCw className={`w-4 h-4 ${ghState === 'dispatching' || ghState === 'running' ? 'animate-spin' : ''}`} />
-                  {ghState === 'running' ? 'Sync Running…' : 'Trigger Manual Sync'}
-                </button>
-              </div>
-              <p className="text-[10px] text-slate-400 font-medium text-right">
-                Runs on GitHub Actions · re-runs on the same day replace that day's record
-              </p>
-            </div>
+            <>
+              <a
+                href={GITHUB_REPO ? `https://github.com/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}` : '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open GitHub Actions"
+                className="flex items-center gap-1.5 bg-white border border-slate-200 text-slate-600 px-3.5 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Actions
+              </a>
+              <button
+                onClick={handleGithubDispatch}
+                disabled={ghState === 'dispatching' || ghState === 'running'}
+                className="flex items-center justify-center gap-2 pink-gradient text-white font-bold py-2.5 px-5 rounded-xl text-xs hover:brightness-105 active:scale-95 disabled:opacity-50 transition-all shadow-md shadow-pink-200/50"
+              >
+                <RefreshCw className={`w-4 h-4 ${ghState === 'dispatching' || ghState === 'running' ? 'animate-spin' : ''}`} />
+                {ghState === 'running' ? 'Sync Running…' : 'Trigger Manual Sync'}
+              </button>
+            </>
           ) : (
-          <button
-            onClick={handleScrape}
-            disabled={loading || profile?.status === 'scraping'}
-            className="flex items-center justify-center gap-2 pink-gradient text-white font-bold py-2.5 px-6 rounded-xl text-sm hover:brightness-105 active:scale-95 disabled:opacity-50 transition-all shadow-md shadow-pink-200/50"
-          >
-            {profile?.status === 'scraping' ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Syncing Network...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="w-4 h-4" />
-                Trigger Manual Sync
-              </>
-            )}
-          </button>
+            <button
+              onClick={handleScrape}
+              disabled={loading || profile?.status === 'scraping'}
+              className="flex items-center justify-center gap-2 pink-gradient text-white font-bold py-2.5 px-5 rounded-xl text-xs hover:brightness-105 active:scale-95 disabled:opacity-50 transition-all shadow-md shadow-pink-200/50"
+            >
+              <RefreshCw className={`w-4 h-4 ${profile?.status === 'scraping' ? 'animate-spin' : ''}`} />
+              {profile?.status === 'scraping' ? 'Syncing Network…' : 'Trigger Manual Sync'}
+            </button>
           )}
         </div>
       </div>
+
+      {/* ===== Meta strip / live progress ===== */}
+      {profile?.status === 'scraping' ? (
+        <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/60 flex items-center gap-4">
+          <div className="flex-1 bg-slate-200/70 h-2 rounded-full overflow-hidden relative">
+            {profile.scrapedCount !== undefined && profile.totalCount !== undefined && profile.totalCount > 0 ? (
+              <div
+                className="bg-pink-500 h-full rounded-full transition-all duration-300"
+                style={{ width: `${(profile.scrapedCount / profile.totalCount) * 100}%` }}
+              />
+            ) : (
+              <div className="bg-pink-500 h-full rounded-full w-1/3 animate-infinite-scroll" />
+            )}
+          </div>
+          <span className="text-[11px] text-slate-500 font-mono font-semibold whitespace-nowrap max-w-[50%] truncate">
+            {profile.totalCount ? `${profile.scrapedCount || 0}/${profile.totalCount} · ` : ''}{profile.progressMessage || 'Contacting scraper...'}
+          </span>
+        </div>
+      ) : (
+        <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/60 flex flex-wrap items-center gap-x-6 gap-y-2 text-[11px] font-semibold text-slate-500">
+          <a href={targetUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-pink-500 transition-colors">
+            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+            {targetUrl.replace('https://', '')}
+          </a>
+          <span className="flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            Last sync: <strong className="font-mono text-slate-700">{getLastScrapedTime()}</strong>
+          </span>
+          {profile?.lastRunStats && (
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+              <strong className="font-mono text-slate-700">{profile.lastRunStats.successCount}/{profile.lastRunStats.total}</strong> shots synced
+            </span>
+          )}
+          {IS_STATIC && (
+            <span className="flex items-center gap-1.5 text-slate-400">
+              <Info className="w-3.5 h-3.5" />
+              Same-day re-runs replace that day&rsquo;s record
+            </span>
+          )}
+        </div>
+      )}
 
       {scrapeError && (
         <div className="px-5 pb-4 -mt-1">

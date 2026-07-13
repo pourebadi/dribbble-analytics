@@ -2,10 +2,10 @@ name: Daily Dribbble Scrape
 
 on:
   schedule:
-    # 23:50 UTC every day. GitHub Actions cron is ALWAYS in UTC.
-    # For 23:50 Tehran time (UTC+3:30) use:  '20 20 * * *'
-    # For 23:50 New York (EDT, UTC-4)  use:  '50 3 * * *'
-    - cron: '50 23 * * *'
+    # GitHub Actions cron is ALWAYS in UTC.
+    # 20:20 UTC = 23:50 Asia/Tehran (matches HISTORY_TZ below).
+    # For 23:50 UTC use '50 23 * * *'; for 23:50 New York (EDT) use '50 3 * * *'.
+    - cron: '20 20 * * *'
   workflow_dispatch: {}   # allows manual runs from the Actions tab
 
 permissions:
@@ -44,10 +44,10 @@ jobs:
         env:
           PROFILE_URL: https://dribbble.com/helistudio
           MAX_SHOTS: '200'
-          # Which calendar day a run's history row belongs to (default: UTC).
-          # Set to your local timezone so runs near local midnight land on the
-          # right business day, e.g.:
-          # HISTORY_TZ: Asia/Tehran
+          # Which calendar day a run's history row belongs to. Set to your
+          # local timezone so runs near local midnight land on the right
+          # business day (remove/change if your team is elsewhere).
+          HISTORY_TZ: Asia/Tehran
         run: npm run scrape
 
       - name: Commit updated data
