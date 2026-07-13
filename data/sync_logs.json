@@ -1,0 +1,1431 @@
+{
+  "aHR0cHM6Ly9kcmliYmJsZS5jb20vaGVsaXN0dWRpbw": [
+    {
+      "id": 2,
+      "message": "Initializing synchronization process for https://dribbble.com/helistudio",
+      "level": "info",
+      "timestamp": "2026-07-13T20:37:39.318Z",
+      "details": null
+    },
+    {
+      "id": 3,
+      "message": "Starting scrape for profile: https://dribbble.com/helistudio",
+      "level": "info",
+      "timestamp": "2026-07-13T20:37:39.319Z",
+      "details": {
+        "profileUrl": "https://dribbble.com/helistudio",
+        "maxShots": 200
+      }
+    },
+    {
+      "id": 4,
+      "message": "Collecting shots from: https://dribbble.com/helistudio",
+      "level": "info",
+      "timestamp": "2026-07-13T20:37:40.402Z",
+      "details": null
+    },
+    {
+      "id": 5,
+      "message": "Discovery scroll round 1: 24 unique shot URLs so far.",
+      "level": "info",
+      "timestamp": "2026-07-13T20:37:46.206Z",
+      "details": {
+        "round": 1,
+        "collected": 24
+      }
+    },
+    {
+      "id": 6,
+      "message": "Discovery scroll round 2: 48 unique shot URLs so far.",
+      "level": "info",
+      "timestamp": "2026-07-13T20:37:47.725Z",
+      "details": {
+        "round": 2,
+        "collected": 48
+      }
+    },
+    {
+      "id": 7,
+      "message": "Discovery scroll round 3: 70 unique shot URLs so far.",
+      "level": "info",
+      "timestamp": "2026-07-13T20:37:49.258Z",
+      "details": {
+        "round": 3,
+        "collected": 70
+      }
+    },
+    {
+      "id": 8,
+      "message": "Found 70 shot URLs",
+      "level": "info",
+      "timestamp": "2026-07-13T20:38:03.085Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 0,
+          "totalCount": 70
+        }
+      }
+    },
+    {
+      "id": 9,
+      "message": "Scraped 1/70: https://dribbble.com/shots/27105187-Logo-Design-Dizno — views=2347 saves=4 likes=23 comments=4",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:07.932Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 1,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27105187-Logo-Design-Dizno",
+        "metrics": {
+          "views": 2347,
+          "saves": 4,
+          "likes": 23,
+          "comments": 4
+        }
+      }
+    },
+    {
+      "id": 10,
+      "message": "Scraped 2/70: https://dribbble.com/shots/27114018-Brand-Identity-Collection-Dizno — views=1144 saves=4 likes=19 comments=3",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:09.831Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 2,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27114018-Brand-Identity-Collection-Dizno",
+        "metrics": {
+          "views": 1144,
+          "saves": 4,
+          "likes": 19,
+          "comments": 3
+        }
+      }
+    },
+    {
+      "id": 11,
+      "message": "Scraped 3/70: https://dribbble.com/shots/27115524-Social-Media-Launch-Visuals-Dizno — views=7616 saves=4 likes=24 comments=3",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:11.713Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 3,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27115524-Social-Media-Launch-Visuals-Dizno",
+        "metrics": {
+          "views": 7616,
+          "saves": 4,
+          "likes": 24,
+          "comments": 3
+        }
+      }
+    },
+    {
+      "id": 12,
+      "message": "Scraped 4/70: https://dribbble.com/shots/27117164-AI-Powered-Self-Discovery-Inhusk — views=4221 saves=7 likes=28 comments=4",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:13.662Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 4,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27117164-AI-Powered-Self-Discovery-Inhusk",
+        "metrics": {
+          "views": 4221,
+          "saves": 7,
+          "likes": 28,
+          "comments": 4
+        }
+      }
+    },
+    {
+      "id": 13,
+      "message": "Scraped 5/70: https://dribbble.com/shots/27120501-Verbal-Visual-Concept-Inhusk — views=25751 saves=8 likes=30 comments=7",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:15.461Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 5,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27120501-Verbal-Visual-Concept-Inhusk",
+        "metrics": {
+          "views": 25751,
+          "saves": 8,
+          "likes": 30,
+          "comments": 7
+        }
+      }
+    },
+    {
+      "id": 14,
+      "message": "Scraped 6/70: https://dribbble.com/shots/27121667-The-Mobile-Web-Journey-Inhusk — views=2874 saves=2 likes=19 comments=5",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:17.295Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 6,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27121667-The-Mobile-Web-Journey-Inhusk",
+        "metrics": {
+          "views": 2874,
+          "saves": 2,
+          "likes": 19,
+          "comments": 5
+        }
+      }
+    },
+    {
+      "id": 15,
+      "message": "Scraped 7/70: https://dribbble.com/shots/27124179-Logo-Motion-Design-Inhusk — views=4469 saves=6 likes=22 comments=4",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:19.099Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 7,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27124179-Logo-Motion-Design-Inhusk",
+        "metrics": {
+          "views": 4469,
+          "saves": 6,
+          "likes": 22,
+          "comments": 4
+        }
+      }
+    },
+    {
+      "id": 16,
+      "message": "Scraped 8/70: https://dribbble.com/shots/27125800-404-and-503-Pages-Experience-Inhusk — views=2844 saves=8 likes=17 comments=2",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:20.894Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 8,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27125800-404-and-503-Pages-Experience-Inhusk",
+        "metrics": {
+          "views": 2844,
+          "saves": 8,
+          "likes": 17,
+          "comments": 2
+        }
+      }
+    },
+    {
+      "id": 17,
+      "message": "Scraped 9/70: https://dribbble.com/shots/27128149-Verbal-Identity-Inhusk — views=2421 saves=4 likes=19 comments=2",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:22.622Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 9,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27128149-Verbal-Identity-Inhusk",
+        "metrics": {
+          "views": 2421,
+          "saves": 4,
+          "likes": 19,
+          "comments": 2
+        }
+      }
+    },
+    {
+      "id": 18,
+      "message": "Scraped 10/70: https://dribbble.com/shots/27129769-Features-That-Define-Discovery-Inhusk — views=2527 saves=4 likes=14 comments=3",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:24.474Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 10,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27129769-Features-That-Define-Discovery-Inhusk",
+        "metrics": {
+          "views": 2527,
+          "saves": 4,
+          "likes": 14,
+          "comments": 3
+        }
+      }
+    },
+    {
+      "id": 19,
+      "message": "Scraped 11/70: https://dribbble.com/shots/27132421-Designing-for-Daily-Presence-Inhusk — views=1522 saves=4 likes=15 comments=3",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:26.310Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 11,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27132421-Designing-for-Daily-Presence-Inhusk",
+        "metrics": {
+          "views": 1522,
+          "saves": 4,
+          "likes": 15,
+          "comments": 3
+        }
+      }
+    },
+    {
+      "id": 20,
+      "message": "Scraped 12/70: https://dribbble.com/shots/27133321-Mapping-Your-Cosmic-Identity-Inhusk — views=4362 saves=6 likes=14 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:28.141Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 12,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27133321-Mapping-Your-Cosmic-Identity-Inhusk",
+        "metrics": {
+          "views": 4362,
+          "saves": 6,
+          "likes": 14,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 21,
+      "message": "Scraped 13/70: https://dribbble.com/shots/27263074-Social-Media-Design-Dizno — views=9715 saves=9 likes=21 comments=2",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:29.986Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 13,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27263074-Social-Media-Design-Dizno",
+        "metrics": {
+          "views": 9715,
+          "saves": 9,
+          "likes": 21,
+          "comments": 2
+        }
+      }
+    },
+    {
+      "id": 22,
+      "message": "Scraped 14/70: https://dribbble.com/shots/27264344-Dreams-Insights-App-Inhusk — views=12188 saves=5 likes=20 comments=2",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:31.771Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 14,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27264344-Dreams-Insights-App-Inhusk",
+        "metrics": {
+          "views": 12188,
+          "saves": 5,
+          "likes": 20,
+          "comments": 2
+        }
+      }
+    },
+    {
+      "id": 23,
+      "message": "Scraped 15/70: https://dribbble.com/shots/27265342-Deciphering-Relational-Dynamics-Inhusk — views=1266 saves=4 likes=13 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:33.588Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 15,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27265342-Deciphering-Relational-Dynamics-Inhusk",
+        "metrics": {
+          "views": 1266,
+          "saves": 4,
+          "likes": 13,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 24,
+      "message": "Scraped 16/70: https://dribbble.com/shots/27266578-Form-Color-in-Motion-Dizno — views=1108 saves=7 likes=18 comments=1",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:35.431Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 16,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27266578-Form-Color-in-Motion-Dizno",
+        "metrics": {
+          "views": 1108,
+          "saves": 7,
+          "likes": 18,
+          "comments": 1
+        }
+      }
+    },
+    {
+      "id": 25,
+      "message": "Scraped 17/70: https://dribbble.com/shots/27270835-Brand-Visibility-in-Social-Dizno — views=1928 saves=5 likes=12 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:37.210Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 17,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27270835-Brand-Visibility-in-Social-Dizno",
+        "metrics": {
+          "views": 1928,
+          "saves": 5,
+          "likes": 12,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 26,
+      "message": "Scraped 18/70: https://dribbble.com/shots/27270868-Not-Just-a-Match-But-a-Pattern-Inhusk — views=2897 saves=5 likes=17 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:39.054Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 18,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27270868-Not-Just-a-Match-But-a-Pattern-Inhusk",
+        "metrics": {
+          "views": 2897,
+          "saves": 5,
+          "likes": 17,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 27,
+      "message": "Scraped 19/70: https://dribbble.com/shots/27272666-Branding-Through-Key-Touchpoints-Dizno — views=970 saves=3 likes=15 comments=1",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:40.815Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 19,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27272666-Branding-Through-Key-Touchpoints-Dizno",
+        "metrics": {
+          "views": 970,
+          "saves": 3,
+          "likes": 15,
+          "comments": 1
+        }
+      }
+    },
+    {
+      "id": 28,
+      "message": "Scraped 20/70: https://dribbble.com/shots/27273187-App-Store-Screenshots-Inhusk — views=1665 saves=2 likes=11 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:42.593Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 20,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27273187-App-Store-Screenshots-Inhusk",
+        "metrics": {
+          "views": 1665,
+          "saves": 2,
+          "likes": 11,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 29,
+      "message": "Scraped 21/70: https://dribbble.com/shots/27275195-In-Motion-Dizno — views=381 saves=2 likes=11 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:44.337Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 21,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27275195-In-Motion-Dizno",
+        "metrics": {
+          "views": 381,
+          "saves": 2,
+          "likes": 11,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 30,
+      "message": "Scraped 22/70: https://dribbble.com/shots/27275956-Visualizing-the-Subconscious-Inhusk — views=956 saves=3 likes=11 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:46.121Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 22,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27275956-Visualizing-the-Subconscious-Inhusk",
+        "metrics": {
+          "views": 956,
+          "saves": 3,
+          "likes": 11,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 31,
+      "message": "Scraped 23/70: https://dribbble.com/shots/27279083-3D-Glass-Elements-Heli-Studio — views=813 saves=3 likes=14 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:47.888Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 23,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27279083-3D-Glass-Elements-Heli-Studio",
+        "metrics": {
+          "views": 813,
+          "saves": 3,
+          "likes": 14,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 32,
+      "message": "Scraped 24/70: https://dribbble.com/shots/27279940-A-Unified-Ecosystem-for-Self-Discovery-Inhusk — views=1763 saves=6 likes=16 comments=5",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:49.653Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 24,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27279940-A-Unified-Ecosystem-for-Self-Discovery-Inhusk",
+        "metrics": {
+          "views": 1763,
+          "saves": 6,
+          "likes": 16,
+          "comments": 5
+        }
+      }
+    },
+    {
+      "id": 33,
+      "message": "Scraped 25/70: https://dribbble.com/shots/27280028-A-Multi-Dimensional-Ecosystem-for-Self-Discovery-Inhusk — views=7498 saves=5 likes=20 comments=4",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:51.428Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 25,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27280028-A-Multi-Dimensional-Ecosystem-for-Self-Discovery-Inhusk",
+        "metrics": {
+          "views": 7498,
+          "saves": 5,
+          "likes": 20,
+          "comments": 4
+        }
+      }
+    },
+    {
+      "id": 34,
+      "message": "Scraped 26/70: https://dribbble.com/shots/27283377-3D-Playground-Dizno — views=5785 saves=2 likes=15 comments=1",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:53.155Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 26,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27283377-3D-Playground-Dizno",
+        "metrics": {
+          "views": 5785,
+          "saves": 2,
+          "likes": 15,
+          "comments": 1
+        }
+      }
+    },
+    {
+      "id": 35,
+      "message": "Scraped 27/70: https://dribbble.com/shots/27287612-Color-Picker-Dizno — views=2151 saves=2 likes=15 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:54.940Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 27,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27287612-Color-Picker-Dizno",
+        "metrics": {
+          "views": 2151,
+          "saves": 2,
+          "likes": 15,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 36,
+      "message": "Scraped 28/70: https://dribbble.com/shots/27291172-Gradient-Generator-Dizno — views=15489 saves=4 likes=46 comments=11",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:56.790Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 28,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27291172-Gradient-Generator-Dizno",
+        "metrics": {
+          "views": 15489,
+          "saves": 4,
+          "likes": 46,
+          "comments": 11
+        }
+      }
+    },
+    {
+      "id": 37,
+      "message": "Scraped 29/70: https://dribbble.com/shots/27291503-Palette-Generator-Dizno — views=2263 saves=2 likes=13 comments=2",
+      "level": "success",
+      "timestamp": "2026-07-13T20:38:58.576Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 29,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27291503-Palette-Generator-Dizno",
+        "metrics": {
+          "views": 2263,
+          "saves": 2,
+          "likes": 13,
+          "comments": 2
+        }
+      }
+    },
+    {
+      "id": 38,
+      "message": "Scraped 30/70: https://dribbble.com/shots/27297761-Mastering-the-Geometry-of-Color-Dizno — views=1477 saves=3 likes=10 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:00.355Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 30,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27297761-Mastering-the-Geometry-of-Color-Dizno",
+        "metrics": {
+          "views": 1477,
+          "saves": 3,
+          "likes": 10,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 39,
+      "message": "Scraped 31/70: https://dribbble.com/shots/27297800-Social-Content-System-HOP-VPN — views=886 saves=4 likes=10 comments=2",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:02.135Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 31,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27297800-Social-Content-System-HOP-VPN",
+        "metrics": {
+          "views": 886,
+          "saves": 4,
+          "likes": 10,
+          "comments": 2
+        }
+      }
+    },
+    {
+      "id": 40,
+      "message": "Scraped 32/70: https://dribbble.com/shots/27300021-3D-Visual-System-HOP-VPN — views=886 saves=3 likes=12 comments=1",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:03.927Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 32,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27300021-3D-Visual-System-HOP-VPN",
+        "metrics": {
+          "views": 886,
+          "saves": 3,
+          "likes": 12,
+          "comments": 1
+        }
+      }
+    },
+    {
+      "id": 41,
+      "message": "Scraped 33/70: https://dribbble.com/shots/27303146-Color-Toolkit-for-Designers-Dizno — views=1507 saves=3 likes=10 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:05.710Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 33,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27303146-Color-Toolkit-for-Designers-Dizno",
+        "metrics": {
+          "views": 1507,
+          "saves": 3,
+          "likes": 10,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 42,
+      "message": "Scraped 34/70: https://dribbble.com/shots/27305699-Type-Animation-HOP-VPN — views=1289 saves=3 likes=9 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:07.456Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 34,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27305699-Type-Animation-HOP-VPN",
+        "metrics": {
+          "views": 1289,
+          "saves": 3,
+          "likes": 9,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 43,
+      "message": "Scraped 35/70: https://dribbble.com/shots/27306922-Designing-in-Every-Light-Dizno — views=632 saves=2 likes=8 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:09.286Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 35,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27306922-Designing-in-Every-Light-Dizno",
+        "metrics": {
+          "views": 632,
+          "saves": 2,
+          "likes": 8,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 44,
+      "message": "Scraped 36/70: https://dribbble.com/shots/27309019-Calm-Color-System-HOP-VPN — views=1532 saves=2 likes=11 comments=1",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:11.069Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 36,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27309019-Calm-Color-System-HOP-VPN",
+        "metrics": {
+          "views": 1532,
+          "saves": 2,
+          "likes": 11,
+          "comments": 1
+        }
+      }
+    },
+    {
+      "id": 45,
+      "message": "Scraped 37/70: https://dribbble.com/shots/27310782-Structured-Color-System-Dizno — views=1565 saves=1 likes=15 comments=2",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:12.834Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 37,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27310782-Structured-Color-System-Dizno",
+        "metrics": {
+          "views": 1565,
+          "saves": 1,
+          "likes": 15,
+          "comments": 2
+        }
+      }
+    },
+    {
+      "id": 46,
+      "message": "Scraped 38/70: https://dribbble.com/shots/27312566-3D-Icon-Set-HOP-VPN — views=21802 saves=9 likes=29 comments=8",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:14.597Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 38,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27312566-3D-Icon-Set-HOP-VPN",
+        "metrics": {
+          "views": 21802,
+          "saves": 9,
+          "likes": 29,
+          "comments": 8
+        }
+      }
+    },
+    {
+      "id": 47,
+      "message": "Scraped 39/70: https://dribbble.com/shots/27314000-Mapping-the-Self-in-Real-Time-Inhusk — views=793 saves=2 likes=10 comments=2",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:16.389Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 39,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27314000-Mapping-the-Self-in-Real-Time-Inhusk",
+        "metrics": {
+          "views": 793,
+          "saves": 2,
+          "likes": 10,
+          "comments": 2
+        }
+      }
+    },
+    {
+      "id": 48,
+      "message": "Scraped 40/70: https://dribbble.com/shots/27315812-3D-Logo-Exploration-Visual-Asset-System — views=713 saves=1 likes=8 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:18.155Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 40,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27315812-3D-Logo-Exploration-Visual-Asset-System",
+        "metrics": {
+          "views": 713,
+          "saves": 1,
+          "likes": 8,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 49,
+      "message": "Scraped 41/70: https://dribbble.com/shots/27315875-The-Science-of-Harmonious-Design-Dizno — views=2373 saves=1 likes=11 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:19.900Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 41,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27315875-The-Science-of-Harmonious-Design-Dizno",
+        "metrics": {
+          "views": 2373,
+          "saves": 1,
+          "likes": 11,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 50,
+      "message": "Scraped 42/70: https://dribbble.com/shots/27318051-Identity-as-a-Content-System-Heli-Technology — views=1395 saves=4 likes=12 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:21.706Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 42,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27318051-Identity-as-a-Content-System-Heli-Technology",
+        "metrics": {
+          "views": 1395,
+          "saves": 4,
+          "likes": 12,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 51,
+      "message": "Scraped 43/70: https://dribbble.com/shots/27318321-Total-Control-Over-Every-Tone-Dizno — views=854 saves=1 likes=11 comments=1",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:23.466Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 43,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27318321-Total-Control-Over-Every-Tone-Dizno",
+        "metrics": {
+          "views": 854,
+          "saves": 1,
+          "likes": 11,
+          "comments": 1
+        }
+      }
+    },
+    {
+      "id": 52,
+      "message": "Scraped 44/70: https://dribbble.com/shots/27320266-Visual-System-for-Flexible-Work-Heli-Technology — views=528 saves=1 likes=11 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:25.231Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 44,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27320266-Visual-System-for-Flexible-Work-Heli-Technology",
+        "metrics": {
+          "views": 528,
+          "saves": 1,
+          "likes": 11,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 53,
+      "message": "Scraped 45/70: https://dribbble.com/shots/27325866-Palette-and-Shade-Exploration-Dizno — views=2270 saves=3 likes=11 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:27.008Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 45,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27325866-Palette-and-Shade-Exploration-Dizno",
+        "metrics": {
+          "views": 2270,
+          "saves": 3,
+          "likes": 11,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 54,
+      "message": "Scraped 46/70: https://dribbble.com/shots/27332311-Visual-Narrative-System-Heli-Technology — views=415 saves=2 likes=13 comments=2",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:29.131Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 46,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27332311-Visual-Narrative-System-Heli-Technology",
+        "metrics": {
+          "views": 415,
+          "saves": 2,
+          "likes": 13,
+          "comments": 2
+        }
+      }
+    },
+    {
+      "id": 55,
+      "message": "Scraped 47/70: https://dribbble.com/shots/27335000-Export-Palettes-with-Clarity-Dizno — views=2259 saves=2 likes=13 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:30.988Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 47,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27335000-Export-Palettes-with-Clarity-Dizno",
+        "metrics": {
+          "views": 2259,
+          "saves": 2,
+          "likes": 13,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 56,
+      "message": "Scraped 48/70: https://dribbble.com/shots/27342394-Hiring-Communication-System-Heli-Technology — views=5128 saves=5 likes=20 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:32.798Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 48,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27342394-Hiring-Communication-System-Heli-Technology",
+        "metrics": {
+          "views": 5128,
+          "saves": 5,
+          "likes": 20,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 57,
+      "message": "Scraped 49/70: https://dribbble.com/shots/27346457-Protecting-Progress-Visually-Dizno — views=1588 saves=2 likes=15 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:34.594Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 49,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27346457-Protecting-Progress-Visually-Dizno",
+        "metrics": {
+          "views": 1588,
+          "saves": 2,
+          "likes": 15,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 58,
+      "message": "Scraped 50/70: https://dribbble.com/shots/27350232-A-Focused-UI-for-Gradient-Controls-Dizno — views=870 saves=1 likes=17 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:36.368Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 50,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27350232-A-Focused-UI-for-Gradient-Controls-Dizno",
+        "metrics": {
+          "views": 870,
+          "saves": 1,
+          "likes": 17,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 59,
+      "message": "Scraped 51/70: https://dribbble.com/shots/27354015-Precision-for-Gradient-Creation-Dizno — views=3720 saves=1 likes=12 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:38.158Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 51,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27354015-Precision-for-Gradient-Creation-Dizno",
+        "metrics": {
+          "views": 3720,
+          "saves": 1,
+          "likes": 12,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 60,
+      "message": "Scraped 52/70: https://dribbble.com/shots/27361295-Continuing-the-3D-Icon-System-HOP-VPN — views=3533 saves=7 likes=27 comments=3",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:39.927Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 52,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27361295-Continuing-the-3D-Icon-System-HOP-VPN",
+        "metrics": {
+          "views": 3533,
+          "saves": 7,
+          "likes": 27,
+          "comments": 3
+        }
+      }
+    },
+    {
+      "id": 61,
+      "message": "Scraped 53/70: https://dribbble.com/shots/27364636-Designing-an-About-Page-with-Intent-Heli-Technology — views=3006 saves=3 likes=15 comments=2",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:42.012Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 53,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27364636-Designing-an-About-Page-with-Intent-Heli-Technology",
+        "metrics": {
+          "views": 3006,
+          "saves": 3,
+          "likes": 15,
+          "comments": 2
+        }
+      }
+    },
+    {
+      "id": 62,
+      "message": "Scraped 54/70: https://dribbble.com/shots/27368323-Geometric-Hero-Section-Heli-Technology — views=6084 saves=9 likes=25 comments=1",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:43.835Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 54,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27368323-Geometric-Hero-Section-Heli-Technology",
+        "metrics": {
+          "views": 6084,
+          "saves": 9,
+          "likes": 25,
+          "comments": 1
+        }
+      }
+    },
+    {
+      "id": 63,
+      "message": "Scraped 55/70: https://dribbble.com/shots/27375647-Gradient-Export-Menu-Dizno — views=883 saves=2 likes=16 comments=2",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:45.683Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 55,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27375647-Gradient-Export-Menu-Dizno",
+        "metrics": {
+          "views": 883,
+          "saves": 2,
+          "likes": 16,
+          "comments": 2
+        }
+      }
+    },
+    {
+      "id": 64,
+      "message": "Scraped 56/70: https://dribbble.com/shots/27383707-Single-Path-Referral-System-Heli-Technology — views=2225 saves=1 likes=14 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:47.459Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 56,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27383707-Single-Path-Referral-System-Heli-Technology",
+        "metrics": {
+          "views": 2225,
+          "saves": 1,
+          "likes": 14,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 65,
+      "message": "Scraped 57/70: https://dribbble.com/shots/27387120-Gradient-Editing-in-Context-Dizno — views=1510 saves=1 likes=13 comments=1",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:49.233Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 57,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27387120-Gradient-Editing-in-Context-Dizno",
+        "metrics": {
+          "views": 1510,
+          "saves": 1,
+          "likes": 13,
+          "comments": 1
+        }
+      }
+    },
+    {
+      "id": 66,
+      "message": "Scraped 58/70: https://dribbble.com/shots/27395138-The-Footer-System-Heli-Technology — views=2557 saves=1 likes=12 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:50.993Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 58,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27395138-The-Footer-System-Heli-Technology",
+        "metrics": {
+          "views": 2557,
+          "saves": 1,
+          "likes": 12,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 67,
+      "message": "Scraped 59/70: https://dribbble.com/shots/27406562-Image-based-Palette-Exploration-Dizno — views=688 saves=2 likes=10 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:52.748Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 59,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27406562-Image-based-Palette-Exploration-Dizno",
+        "metrics": {
+          "views": 688,
+          "saves": 2,
+          "likes": 10,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 68,
+      "message": "Scraped 60/70: https://dribbble.com/shots/27413021-Identity-Built-on-Repair-Money-Mend — views=3353 saves=2 likes=11 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:54.583Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 60,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27413021-Identity-Built-on-Repair-Money-Mend",
+        "metrics": {
+          "views": 3353,
+          "saves": 2,
+          "likes": 11,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 69,
+      "message": "Scraped 61/70: https://dribbble.com/shots/27418965-Editing-Gradients-with-More-Clarity-Dizno — views=631 saves=0 likes=11 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:56.343Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 61,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27418965-Editing-Gradients-with-More-Clarity-Dizno",
+        "metrics": {
+          "views": 631,
+          "saves": 0,
+          "likes": 11,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 70,
+      "message": "Scraped 62/70: https://dribbble.com/shots/27427923-A-Daily-Cosmic-Check-in-Inhusk — views=1401 saves=0 likes=11 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:58.108Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 62,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27427923-A-Daily-Cosmic-Check-in-Inhusk",
+        "metrics": {
+          "views": 1401,
+          "saves": 0,
+          "likes": 11,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 71,
+      "message": "Scraped 63/70: https://dribbble.com/shots/27435197-Compact-System-Component-Heli-Technology — views=793 saves=0 likes=13 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:39:59.925Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 63,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27435197-Compact-System-Component-Heli-Technology",
+        "metrics": {
+          "views": 793,
+          "saves": 0,
+          "likes": 13,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 72,
+      "message": "Scraped 64/70: https://dribbble.com/shots/27453532-Structured-Recovery-System-Money-Mend — views=778 saves=1 likes=11 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:40:01.727Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 64,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27453532-Structured-Recovery-System-Money-Mend",
+        "metrics": {
+          "views": 778,
+          "saves": 1,
+          "likes": 11,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 73,
+      "message": "Scraped 65/70: https://dribbble.com/shots/27460664-Profile-Astrology-Overview-Inhusk — views=791 saves=1 likes=8 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:40:03.483Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 65,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27460664-Profile-Astrology-Overview-Inhusk",
+        "metrics": {
+          "views": 791,
+          "saves": 1,
+          "likes": 8,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 74,
+      "message": "Scraped 66/70: https://dribbble.com/shots/27471769-Digital-Card-Motion-Design-Heli-Technology — views=2783 saves=1 likes=8 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:40:05.233Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 66,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27471769-Digital-Card-Motion-Design-Heli-Technology",
+        "metrics": {
+          "views": 2783,
+          "saves": 1,
+          "likes": 8,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 75,
+      "message": "Scraped 67/70: https://dribbble.com/shots/27475288-Identity-in-Logo-Motion-Money-Mend — views=649 saves=2 likes=8 comments=1",
+      "level": "success",
+      "timestamp": "2026-07-13T20:40:07.001Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 67,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27475288-Identity-in-Logo-Motion-Money-Mend",
+        "metrics": {
+          "views": 649,
+          "saves": 2,
+          "likes": 8,
+          "comments": 1
+        }
+      }
+    },
+    {
+      "id": 76,
+      "message": "Scraped 68/70: https://dribbble.com/shots/27482396-Social-Media-System-for-Clarity-Money-Mend — views=442 saves=2 likes=10 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:40:08.835Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 68,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27482396-Social-Media-System-for-Clarity-Money-Mend",
+        "metrics": {
+          "views": 442,
+          "saves": 2,
+          "likes": 10,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 77,
+      "message": "Scraped 69/70: https://dribbble.com/shots/27516094-Unified-Color-System-Dizno — views=3753 saves=0 likes=7 comments=1",
+      "level": "success",
+      "timestamp": "2026-07-13T20:40:10.627Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 69,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27516094-Unified-Color-System-Dizno",
+        "metrics": {
+          "views": 3753,
+          "saves": 0,
+          "likes": 7,
+          "comments": 1
+        }
+      }
+    },
+    {
+      "id": 78,
+      "message": "Scraped 70/70: https://dribbble.com/shots/27522670-Image-to-Palette-Instantly-Dizno — views=838 saves=0 likes=6 comments=0",
+      "level": "success",
+      "timestamp": "2026-07-13T20:40:12.383Z",
+      "details": {
+        "progress": {
+          "scrapedCount": 70,
+          "totalCount": 70
+        },
+        "url": "https://dribbble.com/shots/27522670-Image-to-Palette-Instantly-Dizno",
+        "metrics": {
+          "views": 838,
+          "saves": 0,
+          "likes": 6,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": 79,
+      "message": "Scrape finished: 70 ok, 0 failed out of 70 shots.",
+      "level": "success",
+      "timestamp": "2026-07-13T20:40:12.384Z",
+      "details": {
+        "total": 70,
+        "ok": 70,
+        "failed": 0
+      }
+    },
+    {
+      "id": 80,
+      "message": "Scraper completed. Writing results to the local database...",
+      "level": "info",
+      "timestamp": "2026-07-13T20:40:12.477Z",
+      "details": null
+    },
+    {
+      "id": 81,
+      "message": "Aggregation summary: Views 222,114 | Likes 1,046 | Saves 221 | Comments 99 across 70 successful shots.",
+      "level": "success",
+      "timestamp": "2026-07-13T20:40:12.844Z",
+      "details": {
+        "views": 222114,
+        "likes": 1046,
+        "saves": 221,
+        "comments": 99,
+        "totalShots": 70
+      }
+    }
+  ]
+}

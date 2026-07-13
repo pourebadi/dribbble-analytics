@@ -5,15 +5,15 @@
     "status": "completed",
     "createdAt": "2026-07-13T14:27:50.942Z",
     "startedAt": null,
-    "lastScrapedAt": "2026-07-13T14:27:50.944Z",
+    "lastScrapedAt": "2026-07-13T20:40:12.844Z",
     "error": null,
     "progressMessage": null,
-    "scrapedCount": 66,
-    "totalCount": 66,
+    "scrapedCount": 70,
+    "totalCount": 70,
     "lastRunStats": {
-      "successCount": 66,
+      "successCount": 70,
       "failedCount": 0,
-      "total": 66
+      "total": 70
     }
   }
 ]
