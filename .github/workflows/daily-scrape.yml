@@ -44,6 +44,10 @@ jobs:
         env:
           PROFILE_URL: https://dribbble.com/helistudio
           MAX_SHOTS: '200'
+          # Which calendar day a run's history row belongs to (default: UTC).
+          # Set to your local timezone so runs near local midnight land on the
+          # right business day, e.g.:
+          # HISTORY_TZ: Asia/Tehran
         run: npm run scrape
 
       - name: Commit updated data
