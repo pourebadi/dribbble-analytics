@@ -50,7 +50,10 @@ export function DashboardStats({
   // Chart states
   const [chartMetric, setChartMetric] = useState<'likes' | 'views' | 'saves' | 'comments'>('views');
   const [chartViewMode, setChartViewMode] = useState<'trend' | 'distribution'>('trend');
-  const [analysisRange, setAnalysisRange] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
+  const [rangePreset, setRangePreset] = useState<'1d' | '3d' | '7d' | '30d' | '90d' | '120d' | 'all' | 'custom'>('30d');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [granularity, setGranularity] = useState<'auto' | 'day' | 'week' | 'month'>('auto');
   const [topShotsMode, setTopShotsMode] = useState<'growth' | 'total'>('growth');
 
   // Helper to safely format a human title from shot
@@ -394,63 +397,93 @@ export function DashboardStats({
   };
 
   if (activeTab === 'analysis') {
-    // Generate aggregated data for Analysis Dashboard
+    // ================= RANGE ENGINE =================
+    // The analysis tab works on a flexible date range over the daily log:
+    // presets (1/3/7/30/90/120 days, All) or a custom start/end, bucketed by
+    // an automatic or user-chosen granularity (day/week/month, end-of-bucket
+    // snapshots).
     const sortedHistory = [...profileHistory].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    // Group history data. Because sortedHistory is chronological and each
-    // assignment overwrites the bucket, every week/month bucket ends up holding
-    // the LAST daily snapshot of that period (end-of-period snapshot) — the
-    // correct way to derive weekly/monthly snapshots from daily data.
-    // Bucket keys are full ISO dates so different years can never collide.
-    const weeklyData: Record<string, any> = {};
-    const monthlyData: Record<string, any> = {};
+    const isoAddDays = (dateStr: string, delta: number) => {
+      const d = new Date(dateStr + 'T00:00:00Z');
+      d.setUTCDate(d.getUTCDate() + delta);
+      return d.toISOString().split('T')[0];
+    };
+    const daysBetween = (a: string, b: string) =>
+      Math.round((new Date(b + 'T00:00:00Z').getTime() - new Date(a + 'T00:00:00Z').getTime()) / 86400000);
 
-    sortedHistory.forEach(h => {
+    const firstLoggedDate = sortedHistory.length > 0 ? sortedHistory[0].date : null;
+    const lastLoggedDate = sortedHistory.length > 0 ? sortedHistory[sortedHistory.length - 1].date : new Date().toISOString().split('T')[0];
+    const loggedDaysCount = sortedHistory.length;
+
+    const presetDays: Record<string, number> = { '1d': 1, '3d': 3, '7d': 7, '30d': 30, '90d': 90, '120d': 120 };
+    let endStr = rangePreset === 'custom' && customEnd ? customEnd : lastLoggedDate;
+    let startStr: string;
+    if (rangePreset === 'all') {
+      startStr = firstLoggedDate || endStr;
+    } else if (rangePreset === 'custom') {
+      startStr = customStart || firstLoggedDate || endStr;
+    } else {
+      startStr = isoAddDays(endStr, -(presetDays[rangePreset] - 1));
+    }
+    if (startStr > endStr) { const t = startStr; startStr = endStr; endStr = t; }
+
+    const inRange = sortedHistory.filter(h => h.date >= startStr && h.date <= endStr);
+    const beforeRange = sortedHistory.filter(h => h.date < startStr);
+    const rangeBaseline = beforeRange.length > 0 ? beforeRange[beforeRange.length - 1] : null;
+    const spanDays = daysBetween(startStr, endStr) + 1;
+
+    const effGranularity: 'day' | 'week' | 'month' =
+      granularity !== 'auto' ? granularity : spanDays <= 35 ? 'day' : spanDays <= 190 ? 'week' : 'month';
+
+    // Bucket to end-of-period snapshots (chronological overwrite keeps the last day of each bucket)
+    const bucketMap: Record<string, any> = {};
+    inRange.forEach(h => {
       try {
         const d = parseISO(h.date);
+        let key: string; let label: string;
+        if (effGranularity === 'day') {
+          key = h.date; label = format(d, 'MMM dd');
+        } else if (effGranularity === 'week') {
+          const ws = startOfWeek(d, { weekStartsOn: 1 });
+          key = format(ws, 'yyyy-MM-dd'); label = `W/${format(ws, 'MMM dd')}`;
+        } else {
+          const ms = startOfMonth(d);
+          key = format(ms, 'yyyy-MM'); label = format(ms, 'MMM yyyy');
+        }
+        bucketMap[key] = { name: label, Views: h.views, Likes: h.likes, Saves: h.saves, Comments: h.comments };
+      } catch { /* ignore invalid dates */ }
+    });
+    const currentChartData = Object.keys(bucketMap).sort().map(k => bucketMap[k]).slice(-90);
 
-        // Weekly (key = ISO date of week start, label = "Week of MMM dd")
-        const weekStart = startOfWeek(d, { weekStartsOn: 1 });
-        const weekKey = format(weekStart, 'yyyy-MM-dd');
-        weeklyData[weekKey] = { name: `W/${format(weekStart, 'MMM dd')}`, Views: h.views, Likes: h.likes, Saves: h.saves, Comments: h.comments };
-
-        // Monthly
-        const monthStart = startOfMonth(d);
-        const monthKey = format(monthStart, 'yyyy-MM');
-        monthlyData[monthKey] = { name: format(monthStart, 'MMM yyyy'), Views: h.views, Likes: h.likes, Saves: h.saves, Comments: h.comments };
-      } catch (e) {
-        // Ignore invalid dates
-      }
+    // ---- Range performance deltas (gained in range vs previous equal window) ----
+    const endPoint = inRange.length > 0 ? inRange[inRange.length - 1] : null;
+    const startBase = rangeBaseline || (inRange.length > 0 ? inRange[0] : null);
+    const metricKeys = ['views', 'likes', 'saves', 'comments'] as const;
+    const gainedInRange: Record<string, number> = {};
+    metricKeys.forEach(m => {
+      gainedInRange[m] = endPoint && startBase ? Math.max(0, (endPoint as any)[m] - (startBase as any)[m]) : 0;
     });
 
-    const sortedBucketValues = (obj: Record<string, any>) =>
-      Object.keys(obj).sort().map(k => obj[k]);
+    const prevEndStr = isoAddDays(startStr, -1);
+    const prevStartStr = isoAddDays(prevEndStr, -(spanDays - 1));
+    const prevWindow = sortedHistory.filter(h => h.date >= prevStartStr && h.date <= prevEndStr);
+    const prevBaseArr = sortedHistory.filter(h => h.date < prevStartStr);
+    const prevEndPoint = prevWindow.length > 0 ? prevWindow[prevWindow.length - 1] : null;
+    const prevBase = prevBaseArr.length > 0 ? prevBaseArr[prevBaseArr.length - 1] : (prevWindow.length > 0 ? prevWindow[0] : null);
+    const deltaPct: Record<string, number | null> = {};
+    metricKeys.forEach(m => {
+      const prevGained = prevEndPoint && prevBase ? Math.max(0, (prevEndPoint as any)[m] - (prevBase as any)[m]) : null;
+      deltaPct[m] = prevGained !== null && prevGained > 0 ? ((gainedInRange[m] - prevGained) / prevGained) * 100 : null;
+    });
 
-    const timeLabels = {
-      daily: sortedHistory.slice(-14).map(h => {
-        try {
-          return { name: format(parseISO(h.date), 'MMM dd'), Views: h.views, Likes: h.likes, Saves: h.saves, Comments: h.comments };
-        } catch {
-          return { name: h.date, Views: h.views, Likes: h.likes, Saves: h.saves, Comments: h.comments };
-        }
-      }),
-      weekly: sortedBucketValues(weeklyData).slice(-12),
-      monthly: sortedBucketValues(monthlyData).slice(-12)
-    };
+    const rangeWindowLabel =
+      rangePreset === 'all' ? 'all time'
+      : rangePreset === 'custom' ? `${startStr} → ${endStr}`
+      : `last ${presetDays[rangePreset]} day${presetDays[rangePreset] > 1 ? 's' : ''}`;
 
-    const currentChartData = timeLabels[analysisRange];
-
-    // ------------------------------------------------------------------
-    // TOP SHOTS per selected range.
-    // Growth = value now − value at the start of the window (carry-forward
-    // per shot: latest history entry ≤ cutoff; if the shot wasn't tracked
-    // before the window, its first entry is used as the baseline, i.e.
-    // growth since tracking began).
-    // ------------------------------------------------------------------
-    const windowDays = analysisRange === 'daily' ? 1 : analysisRange === 'weekly' ? 7 : 30;
-    const latestDateStr = sortedHistory.length > 0 ? sortedHistory[sortedHistory.length - 1].date : new Date().toISOString().split('T')[0];
-    const cutoffDate = new Date(new Date(latestDateStr).getTime() - windowDays * 24 * 60 * 60 * 1000);
-    const cutoffStr = cutoffDate.toISOString().split('T')[0];
+    // ---- TOP SHOTS growth within the selected range ----
+    const cutoffStr = isoAddDays(startStr, -1);
 
     const metricDefs: { key: 'views' | 'likes' | 'saves' | 'comments'; label: string; color: string; Icon: any }[] = [
       { key: 'views', label: 'Most Viewed Shots', color: '#3B82F6', Icon: Eye },
@@ -464,9 +497,10 @@ export function DashboardStats({
         .filter((h: any) => h && h.date)
         .sort((a: any, b: any) => (a.date < b.date ? -1 : 1));
 
-      const nowEntry = hist.length > 0
-        ? hist[hist.length - 1]
-        : { views: shot.views || 0, likes: shot.likes || 0, saves: shot.saves || 0, comments: shot.comments || 0 };
+      // value at range end (carry-forward), and baseline at range start
+      let nowEntry: any = null;
+      for (const h of hist) { if (h.date <= endStr) nowEntry = h; else break; }
+      if (!nowEntry) nowEntry = { views: shot.views || 0, likes: shot.likes || 0, saves: shot.saves || 0, comments: shot.comments || 0 };
 
       let baseEntry: any = null;
       for (const h of hist) {
@@ -500,7 +534,29 @@ export function DashboardStats({
         }));
     };
 
-    const rangeWindowLabel = analysisRange === 'daily' ? 'last day' : analysisRange === 'weekly' ? 'last 7 days' : 'last 30 days';
+    // ---- Tag performance (marketing insight) ----
+    const tagAgg: Record<string, { views: number; likes: number; count: number }> = {};
+    validShots.forEach(shot => {
+      (shot.tags || []).forEach((t: any) => {
+        const k = String(t).toLowerCase().trim();
+        if (!k) return;
+        if (!tagAgg[k]) tagAgg[k] = { views: 0, likes: 0, count: 0 };
+        tagAgg[k].views += shot.views || 0;
+        tagAgg[k].likes += shot.likes || 0;
+        tagAgg[k].count += 1;
+      });
+    });
+    const tagPerformance = Object.entries(tagAgg)
+      .filter(([, v]) => v.count >= 2)
+      .map(([name, v]) => ({ name: name.length > 18 ? name.slice(0, 18) + '…' : name, fullName: name, AvgViews: Math.round(v.views / v.count), Shots: v.count }))
+      .sort((a, b) => b.AvgViews - a.AvgViews)
+      .slice(0, 10);
+
+    // ---- Portfolio concentration (Pareto insight) ----
+    const viewsDesc = [...validShots].map(s => s.views || 0).sort((a, b) => b - a);
+    const totalViewsAll = viewsDesc.reduce((a, b) => a + b, 0);
+    const top3Share = totalViewsAll > 0 ? viewsDesc.slice(0, 3).reduce((a, b) => a + b, 0) / totalViewsAll * 100 : 0;
+    const top10Share = totalViewsAll > 0 ? viewsDesc.slice(0, 10).reduce((a, b) => a + b, 0) / totalViewsAll * 100 : 0;
 
     // Calculate Velocity (Growth Delta)
     const velocityData = currentChartData.map((data, index) => {
@@ -594,24 +650,92 @@ export function DashboardStats({
                <p className="text-xs text-slate-500 font-medium">Detailed tracking of Key Performance Indicators (KPIs) for the social team</p>
              </div>
           </div>
-          <div className="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200/50">
-             {['daily', 'weekly', 'monthly'].map(range => (
-               <button 
-                  key={range}
-                  onClick={() => setAnalysisRange(range as any)}
-                  className={`px-5 py-2 text-xs font-bold rounded-lg capitalize transition-all ${analysisRange === range ? 'bg-white shadow-sm text-pink-600 border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}
-               >
-                 {range}
-               </button>
-             ))}
+        </div>
+
+        {/* ===== Range & granularity controls ===== */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1.5 rounded-xl border border-slate-200/50 self-start">
+              {(['1d', '3d', '7d', '30d', '90d', '120d', 'all', 'custom'] as const).map(r => (
+                <button
+                  key={r}
+                  onClick={() => setRangePreset(r)}
+                  className={`px-3.5 py-1.5 text-[11px] font-bold rounded-lg uppercase transition-all ${rangePreset === r ? 'bg-white shadow-sm text-pink-600 border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  {r === 'all' ? 'All' : r === 'custom' ? 'Custom' : r.toUpperCase()}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 self-start">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Group by</span>
+              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/50">
+                {(['auto', 'day', 'week', 'month'] as const).map(g => (
+                  <button
+                    key={g}
+                    onClick={() => setGranularity(g)}
+                    className={`px-3 py-1.5 text-[11px] font-bold rounded-lg capitalize transition-all ${granularity === g ? 'bg-white shadow-sm text-pink-600 border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    {g === 'auto' ? `Auto (${effGranularity})` : g}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
+          {rangePreset === 'custom' && (
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-[11px] font-bold text-slate-500">
+                From
+                <input type="date" value={customStart} min={firstLoggedDate || undefined} max={lastLoggedDate}
+                  onChange={e => setCustomStart(e.target.value)}
+                  className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-pink-200" />
+              </label>
+              <label className="flex items-center gap-2 text-[11px] font-bold text-slate-500">
+                To
+                <input type="date" value={customEnd} min={firstLoggedDate || undefined} max={lastLoggedDate}
+                  onChange={e => setCustomEnd(e.target.value)}
+                  className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-pink-200" />
+              </label>
+            </div>
+          )}
+          <p className="text-[10px] text-slate-400 font-semibold">
+            Showing <span className="text-slate-600">{startStr}</span> → <span className="text-slate-600">{endStr}</span> ({rangeWindowLabel}, grouped by {effGranularity})
+            &nbsp;·&nbsp; {loggedDaysCount} day{loggedDaysCount !== 1 ? 's' : ''} of history logged so far{firstLoggedDate ? ` (since ${firstLoggedDate})` : ''}
+            {loggedDaysCount < 2 && ' — trend charts become meaningful as daily syncs accumulate'}
+          </p>
+        </div>
+
+        {/* ===== Range performance (gained in period vs previous equal period) ===== */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {([
+            { key: 'views', label: 'Views gained', color: '#3B82F6', Icon: Eye },
+            { key: 'likes', label: 'Likes gained', color: '#EA4C89', Icon: Heart },
+            { key: 'saves', label: 'Saves gained', color: '#8B5CF6', Icon: Bookmark },
+            { key: 'comments', label: 'Comments gained', color: '#10B981', Icon: MessageCircle },
+          ] as const).map(({ key, label, color, Icon }) => {
+            const pct = deltaPct[key];
+            return (
+              <div key={key} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="p-1.5 rounded-lg" style={{ background: `${color}15`, color }}><Icon className="w-4 h-4" /></div>
+                  {pct !== null && (
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${pct >= 0 ? 'text-emerald-700 bg-emerald-50' : 'text-red-600 bg-red-50'}`}>
+                      {pct >= 0 ? '▲' : '▼'} {Math.abs(pct).toFixed(0)}%
+                    </span>
+                  )}
+                </div>
+                <div className="text-xl font-black text-slate-800 font-mono">+{gainedInRange[key].toLocaleString()}</div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">{label} · {rangeWindowLabel}</p>
+                {pct === null && <p className="text-[9px] text-slate-300 font-semibold mt-1">no previous period to compare yet</p>}
+              </div>
+            );
+          })}
         </div>
 
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm flex flex-col justify-between">
             <div className="flex justify-between items-start mb-2">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Velocity ({analysisRange})</span>
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Velocity ({effGranularity})</span>
               <div className="p-1.5 bg-blue-50 text-blue-600 rounded-lg"><TrendingUp className="w-4 h-4" /></div>
             </div>
             <div>
@@ -656,7 +780,7 @@ export function DashboardStats({
           <div className="mb-6 flex justify-between items-end">
             <div>
               <h4 className="font-bold text-slate-800 text-sm">Overall Snapshot — Views / Likes / Saves / Comments</h4>
-              <p className="text-[11px] text-slate-500">Cumulative account totals per {analysisRange === 'daily' ? 'day' : analysisRange === 'weekly' ? 'week (end-of-week snapshot)' : 'month (end-of-month snapshot)'} — derived from the daily log</p>
+              <p className="text-[11px] text-slate-500">Cumulative account totals per {effGranularity} (end-of-{effGranularity} snapshot) — {rangeWindowLabel}</p>
             </div>
             <div className="text-[10px] font-bold text-pink-600 bg-pink-50 px-2 py-1 rounded-md border border-pink-100">
               Snapshot
@@ -718,7 +842,7 @@ export function DashboardStats({
             </div>
             <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/50 self-start">
               {([
-                { key: 'growth', label: `Growth (${analysisRange})` },
+                { key: 'growth', label: 'Growth (range)' },
                 { key: 'total', label: 'Total' },
               ] as const).map(opt => (
                 <button
@@ -777,6 +901,79 @@ export function DashboardStats({
           </div>
         </div>
 
+        {/* ===== Marketing insights: tags & concentration ===== */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <div className="mb-6 flex justify-between items-end">
+              <div>
+                <h4 className="font-bold text-slate-800 text-sm">Top Performing Tags</h4>
+                <p className="text-[11px] text-slate-500">Average views per shot for tags used on 2+ shots — which topics resonate</p>
+              </div>
+              <div className="text-[10px] font-bold text-violet-600 bg-violet-50 px-2 py-1 rounded-md border border-violet-100">Marketing</div>
+            </div>
+            {tagPerformance.length === 0 ? (
+              <div className="h-[260px] flex items-center justify-center text-xs text-slate-400 font-medium">Not enough tagged shots yet.</div>
+            ) : (
+              <div className="h-[260px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart layout="vertical" data={tagPerformance} margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#94a3b8' }} />
+                    <YAxis type="category" dataKey="name" width={130} axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#475569', fontWeight: 600 }} />
+                    <Tooltip
+                      cursor={{ fill: '#f8fafc' }}
+                      contentStyle={{ borderRadius: '12px', border: '1px solid #f1f5f9', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', background: '#fff', fontSize: '12px' }}
+                      formatter={(v: any, _n: any, entry: any) => [`${Number(v).toLocaleString()} avg views (${entry?.payload?.Shots} shots)`, entry?.payload?.fullName]}
+                    />
+                    <Bar dataKey="AvgViews" fill="#8B5CF6" radius={[0, 4, 4, 0]} maxBarSize={16} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col">
+            <div className="mb-4">
+              <h4 className="font-bold text-slate-800 text-sm">Portfolio Concentration</h4>
+              <p className="text-[11px] text-slate-500">How dependent total views are on a few hit shots</p>
+            </div>
+            <div className="space-y-4 flex-1">
+              <div>
+                <div className="flex justify-between text-[11px] font-bold mb-1">
+                  <span className="text-slate-600">Top 3 shots</span>
+                  <span className="text-pink-600 font-mono">{top3Share.toFixed(1)}%</span>
+                </div>
+                <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-pink-500 rounded-full" style={{ width: `${Math.min(100, top3Share)}%` }} />
+                </div>
+              </div>
+              <div>
+                <div className="flex justify-between text-[11px] font-bold mb-1">
+                  <span className="text-slate-600">Top 10 shots</span>
+                  <span className="text-violet-600 font-mono">{top10Share.toFixed(1)}%</span>
+                </div>
+                <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-violet-500 rounded-full" style={{ width: `${Math.min(100, top10Share)}%` }} />
+                </div>
+              </div>
+              <div>
+                <div className="flex justify-between text-[11px] font-bold mb-1">
+                  <span className="text-slate-600">All other shots ({Math.max(0, validShots.length - 10)})</span>
+                  <span className="text-slate-500 font-mono">{Math.max(0, 100 - top10Share).toFixed(1)}%</span>
+                </div>
+                <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-slate-400 rounded-full" style={{ width: `${Math.max(0, 100 - top10Share)}%` }} />
+                </div>
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-4 pt-3 border-t border-slate-100 font-medium leading-relaxed">
+              {top10Share > 60
+                ? 'High concentration: a handful of hits drive most reach — replicate what made them work, and diversify to reduce dependence.'
+                : 'Healthy spread: reach is distributed across the portfolio rather than depending on a few hits.'}
+            </p>
+          </div>
+        </div>
+
         {/* BI Charts Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
            
@@ -784,7 +981,7 @@ export function DashboardStats({
            <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
              <div className="mb-6">
                <h4 className="font-bold text-slate-800 text-sm">Integrated Growth Trend</h4>
-               <p className="text-[11px] text-slate-500">Comparison of views and interactions across {analysisRange} range</p>
+               <p className="text-[11px] text-slate-500">Views and interactions across the selected range ({rangeWindowLabel})</p>
              </div>
              <div className="h-[300px] w-full">
                <ResponsiveContainer width="100%" height="100%">
@@ -809,7 +1006,7 @@ export function DashboardStats({
            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col">
              <div className="mb-2">
                <h4 className="font-bold text-slate-800 text-sm">Engagement Rate Trend</h4>
-               <p className="text-[11px] text-slate-500">Interactions (likes + saves + comments) as % of views per {analysisRange} snapshot</p>
+               <p className="text-[11px] text-slate-500">Interactions (likes + saves + comments) as % of views per {effGranularity} snapshot</p>
              </div>
              <div className="flex-1 min-h-[250px] relative pt-4">
                <ResponsiveContainer width="100%" height="100%">
