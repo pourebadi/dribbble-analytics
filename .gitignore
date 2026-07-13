@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+*.log
+.env
+# SQLite runtime files (the .db itself IS committed by the daily workflow)
+data/*.db-wal
+data/*.db-shm
