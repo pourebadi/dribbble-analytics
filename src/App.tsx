@@ -57,20 +57,13 @@ export default function App() {
         const found = data.find((p: any) => p.url === targetUrl) || data[0];
         if (found) {
           setProfile(found);
-          localStorage.setItem(`cached_profile_${targetUrl}`, JSON.stringify(found));
           if (activeProfileUrl !== found.url) {
             setActiveProfileUrl(found.url);
           }
         }
       }
     } catch (e) {
-      console.log('Failed to fetch profile status (expected if server reloading)', e);
-      try {
-        const cached = localStorage.getItem(`cached_profile_${targetUrl}`);
-        if (cached) {
-          setProfile(JSON.parse(cached));
-        }
-      } catch (_) {}
+      console.error('Failed to fetch profile status', e);
     }
   };
 
@@ -82,30 +75,15 @@ export default function App() {
 
       if (Array.isArray(data)) {
         setShots(data);
-        localStorage.setItem(`cached_shots_${profileUrl || 'all'}`, JSON.stringify(data));
       } else {
         throw new Error('Invalid data format received from server');
       }
     } catch (e: any) {
-      console.log('Failed to fetch shots (expected if server reloading)', e);
+      console.error('Failed to fetch shots', e);
       setError(e.message || 'Failed to fetch shots');
-      try {
-        const cached = localStorage.getItem(`cached_shots_${profileUrl || 'all'}`);
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed)) {
-            setShots(parsed);
-          }
-        }
-      } catch (_) {}
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleManualSync = () => {
-    fetchProfile(true);
-    fetchShots(activeProfileUrl, true);
   };
 
   return (
@@ -222,8 +200,6 @@ export default function App() {
           shots={shots} 
           activeProfile={profile} 
           activeTab={activeTab} 
-          onSync={handleManualSync} 
-          isSyncing={loading} 
           profileManager={
             <ProfileManager 
               onProfileSelect={setActiveProfileUrl} 

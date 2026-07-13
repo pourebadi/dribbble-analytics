@@ -22,8 +22,18 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 export const DB_PATH = path.join(DATA_DIR, 'dribbble.db');
 
 const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
+// IMPORTANT: DELETE journal mode keeps ALL data inside the single .db file.
+// WAL mode would leave fresh writes in a separate -wal file (gitignored),
+// which caused the committed database to silently go stale in CI.
+db.pragma('journal_mode = DELETE');
 db.pragma('foreign_keys = ON');
+
+/** Flush and close the database. MUST be called before a CLI process exits
+ *  so the committed .db file contains every write. */
+export function closeDb() {
+  try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch { /* no-op in DELETE mode */ }
+  try { db.close(); } catch { /* already closed */ }
+}
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS profiles (
@@ -230,8 +240,21 @@ export function getLogs(profileId: string) {
 //    last_error / last_failed_at
 //  * failed brand-new shots: stored as status='failed' with no history
 // ---------------------------------------------------------------------------
+/** YYYY-MM-DD in HISTORY_TZ (default UTC). Controls which calendar day a
+ *  sync's history row belongs to — set HISTORY_TZ=Asia/Tehran (etc.) so runs
+ *  around local midnight land on the local business day. */
+export function historyDayString(d: Date = new Date()): string {
+  const tz = process.env.HISTORY_TZ;
+  if (!tz) return d.toISOString().split('T')[0];
+  try {
+    return d.toLocaleDateString('en-CA', { timeZone: tz }); // en-CA => YYYY-MM-DD
+  } catch {
+    return d.toISOString().split('T')[0];
+  }
+}
+
 export const applyScrapeResults = db.transaction((profileUrl: string, shots: ShotStats[]) => {
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = historyDayString();
   const nowTs = Date.now();
 
   const getExisting = db.prepare('SELECT url FROM shots WHERE url = ?');
@@ -332,6 +355,68 @@ export function exportJsonSnapshot() {
     if (p) logsByProfile[p.id] = getLogs(p.id);
   }
   fs.writeFileSync(path.join(DATA_DIR, 'sync_logs.json'), JSON.stringify(logsByProfile, null, 2), 'utf-8');
+}
+
+/**
+ * Self-healing restore: merges data from the committed JSON snapshots
+ * (data/shots.json) into the DB WITHOUT overwriting anything the DB already
+ * has. Heals drift where the JSONs advanced but the .db did not (e.g. the
+ * historical WAL bug). Safe to run before every scrape:
+ *   - shots missing from the DB are inserted from JSON
+ *   - history rows missing from the DB are inserted (never replaced)
+ */
+export function restoreMissingFromJson(): { shotsAdded: number; historyAdded: number } {
+  const jsonPath = path.join(DATA_DIR, 'shots.json');
+  if (!fs.existsSync(jsonPath)) return { shotsAdded: 0, historyAdded: 0 };
+
+  let jsonShots: any[] = [];
+  try { jsonShots = JSON.parse(fs.readFileSync(jsonPath, 'utf-8')); } catch { return { shotsAdded: 0, historyAdded: 0 }; }
+  if (!Array.isArray(jsonShots)) return { shotsAdded: 0, historyAdded: 0 };
+
+  let shotsAdded = 0;
+  let historyAdded = 0;
+
+  const getShot = db.prepare('SELECT url FROM shots WHERE url = ?');
+  const insertShot = db.prepare(`
+    INSERT OR IGNORE INTO shots (url, profile_url, title, image_url, posted, views, saves, likes, comments, tags, status, error, scraped_at)
+    VALUES (@url, @profile_url, @title, @image_url, @posted, @views, @saves, @likes, @comments, @tags, @status, @error, @scraped_at)
+  `);
+  const insertHistory = db.prepare(`
+    INSERT OR IGNORE INTO shot_history (shot_url, date, timestamp, views, likes, saves, comments)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const run = db.transaction(() => {
+    for (const s of jsonShots) {
+      if (!s || !s.url) continue;
+      if (!getShot.get(s.url)) {
+        insertShot.run({
+          url: s.url,
+          profile_url: s.profileUrl || '',
+          title: s.title ?? null,
+          image_url: s.imageUrl ?? null,
+          posted: s.posted ?? null,
+          views: s.views ?? null,
+          saves: s.saves ?? null,
+          likes: s.likes ?? null,
+          comments: s.comments ?? null,
+          tags: JSON.stringify(s.tags || []),
+          status: s.status || 'ok',
+          error: s.error ?? null,
+          scraped_at: s.scrapedAt ?? null,
+        });
+        shotsAdded++;
+      }
+      for (const h of s.history || []) {
+        if (!h || !h.date) continue;
+        const r = insertHistory.run(s.url, h.date, h.timestamp || 0, h.views || 0, h.likes || 0, h.saves || 0, h.comments || 0);
+        if (r.changes > 0) historyAdded++;
+      }
+    }
+  });
+  run();
+
+  return { shotsAdded, historyAdded };
 }
 
 export default db;

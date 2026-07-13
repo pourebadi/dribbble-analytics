@@ -31,15 +31,11 @@ export function DashboardStats({
   shots, 
   activeProfile, 
   activeTab,
-  onSync,
-  isSyncing,
   profileManager
 }: { 
   shots: Shot[]; 
   activeProfile: Profile | null; 
   activeTab: 'dashboard' | 'analysis' | 'history';
-  onSync?: () => void;
-  isSyncing?: boolean;
   profileManager?: React.ReactNode;
 }) {
   
@@ -131,6 +127,7 @@ export function DashboardStats({
                 src={shot.imageUrl} 
                 alt={getShotTitle(shot)}
                 referrerPolicy="no-referrer"
+                loading="lazy"
                 className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
               />
             ) : (
@@ -1057,22 +1054,6 @@ export function DashboardStats({
     <div className="space-y-6">
       
       {profileManager}
-
-      {/* Database Sync Actions */}
-      <div className="flex items-center justify-between bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-        <div className="flex flex-col">
-           <h3 className="text-sm font-bold text-slate-800">Database Sync Status</h3>
-           <p className="text-xs text-slate-500 mt-1">To prevent Firebase limitations, data is cached. Sync to receive the latest information.</p>
-        </div>
-        <button
-          onClick={onSync}
-          disabled={isSyncing}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white text-xs font-bold rounded-xl hover:bg-slate-700 disabled:opacity-50 transition-all shadow-sm"
-        >
-          <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-          {isSyncing ? 'Receiving...' : 'Sync with Database'}
-        </button>
-      </div>
 
       {/* Stats Cards Dashboard */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
