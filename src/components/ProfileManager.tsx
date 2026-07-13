@@ -314,16 +314,6 @@ export function ProfileManager({
 
           {IS_STATIC ? (
             <>
-              <a
-                href={GITHUB_REPO ? `https://github.com/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}` : '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Open GitHub Actions"
-                className="flex items-center gap-1.5 bg-white border border-slate-200 text-slate-600 px-3.5 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                Actions
-              </a>
               <button
                 onClick={handleGithubDispatch}
                 disabled={ghState === 'dispatching' || ghState === 'running'}

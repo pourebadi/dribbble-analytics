@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Shot, Profile } from '../types.ts';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, LineChart, Line, ComposedChart, Legend, ScatterChart, Scatter, ZAxis, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import { startOfWeek, startOfMonth, format, parseISO } from 'date-fns';
+import { DateRangePicker } from './DateRangePicker.tsx';
 import { 
   Eye, 
   Heart, 
@@ -54,7 +55,7 @@ export function DashboardStats({
   const [rangePreset, setRangePreset] = useState<'1d' | '3d' | '7d' | '30d' | '90d' | '120d' | 'all' | 'custom'>('30d');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
-  const [granularity, setGranularity] = useState<'auto' | 'day' | 'week' | 'month'>('auto');
+  const granularity: 'auto' | 'day' | 'week' | 'month' = 'auto'; // grouping is automatic based on range length
   const [topShotsMode, setTopShotsMode] = useState<'growth' | 'total'>('growth');
 
   // Helper to safely format a human title from shot
@@ -675,35 +676,18 @@ export function DashboardStats({
                 </button>
               ))}
             </div>
-            <div className="flex items-center gap-2 self-start">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Group by</span>
-              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/50">
-                {(['auto', 'day', 'week', 'month'] as const).map(g => (
-                  <button
-                    key={g}
-                    onClick={() => setGranularity(g)}
-                    className={`px-3 py-1.5 text-[11px] font-bold rounded-lg capitalize transition-all ${granularity === g ? 'bg-white shadow-sm text-pink-600 border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}
-                  >
-                    {g === 'auto' ? `Auto (${effGranularity})` : g}
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
           {rangePreset === 'custom' && (
             <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 text-[11px] font-bold text-slate-500">
-                From
-                <input type="date" value={customStart} min={firstLoggedDate || undefined} max={lastLoggedDate}
-                  onChange={e => setCustomStart(e.target.value)}
-                  className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-pink-200" />
-              </label>
-              <label className="flex items-center gap-2 text-[11px] font-bold text-slate-500">
-                To
-                <input type="date" value={customEnd} min={firstLoggedDate || undefined} max={lastLoggedDate}
-                  onChange={e => setCustomEnd(e.target.value)}
-                  className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-pink-200" />
-              </label>
+              <DateRangePicker
+                start={startStr}
+                end={endStr}
+                min={firstLoggedDate}
+                max={lastLoggedDate}
+                availableDates={new Set(sortedHistory.map(h => h.date))}
+                onChange={(s, e) => { setCustomStart(s); setCustomEnd(e); }}
+              />
+              <p className="text-[10px] text-slate-400 font-semibold">Only days inside the logged history window can be selected.</p>
             </div>
           )}
           <p className="text-[10px] text-slate-400 font-semibold">
@@ -783,6 +767,52 @@ export function DashboardStats({
             </div>
           </div>
         </div>
+
+        {/* ===== Where the growth came from (top contributors in range) ===== */}
+        {(() => {
+          const totalGainedViews = shotGrowthList.reduce((a, x) => a + (x.growth.views || 0), 0);
+          if (totalGainedViews <= 0) return null;
+          const top = [...shotGrowthList].sort((a, b) => (b.growth.views || 0) - (a.growth.views || 0)).slice(0, 5)
+            .filter(x => (x.growth.views || 0) > 0);
+          const topSum = top.reduce((a, x) => a + x.growth.views, 0);
+          const othersShare = Math.max(0, 100 - (topSum / totalGainedViews) * 100);
+          return (
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              <div className="mb-5 flex justify-between items-end">
+                <div>
+                  <h4 className="font-bold text-slate-800 text-sm">Where the Growth Came From</h4>
+                  <p className="text-[11px] text-slate-500">Shots contributing the most new views in the selected range ({rangeWindowLabel})</p>
+                </div>
+                <div className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-md border border-blue-100">
+                  +{totalGainedViews.toLocaleString()} views total
+                </div>
+              </div>
+              <div className="space-y-2.5">
+                {top.map((x, idx) => {
+                  const share = (x.growth.views / totalGainedViews) * 100;
+                  const title = getShotTitle(x.shot);
+                  return (
+                    <div key={x.shot.url} className="flex items-center gap-3">
+                      <span className="w-5 text-[11px] font-black text-slate-300 font-mono">{idx + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-baseline mb-1">
+                          <span className="text-xs font-bold text-slate-700 truncate pr-3">{title}</span>
+                          <span className="text-[11px] font-black text-slate-800 font-mono whitespace-nowrap">+{x.growth.views.toLocaleString()} <span className="text-slate-400 font-bold">({share.toFixed(1)}%)</span></span>
+                        </div>
+                        <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-gradient-to-r from-pink-500 to-violet-500 rounded-full" style={{ width: `${Math.max(2, share)}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {othersShare > 0.5 && (
+                  <p className="text-[10px] text-slate-400 font-semibold pt-1">All other shots contributed the remaining {othersShare.toFixed(1)}%.</p>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ===== Overall Metric Snapshots (daily-logged, weekly/monthly derived) ===== */}
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
