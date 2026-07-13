@@ -7,7 +7,10 @@ import React, { useState, useEffect } from 'react';
 import { ProfileManager } from './components/ProfileManager.tsx';
 import { DashboardStats } from './components/DashboardStats.tsx';
 import { Shot, Profile } from './types.ts';
-import { apiFetchProfiles, apiFetchShots, IS_STATIC } from './api.ts';
+import { apiFetchProfiles, apiFetchShots, IS_STATIC, GITHUB_REPO } from './api.ts';
+import { LoginGate } from './components/LoginGate.tsx';
+import { isAuthed, logout, AUTH_USER } from './auth.ts';
+import { LogOut, Settings, ExternalLink } from 'lucide-react';
 import { LayoutDashboard, LineChart, History, Cpu, Server, ShieldCheck } from 'lucide-react';
 
 export default function App() {
@@ -86,6 +89,13 @@ export default function App() {
     }
   };
 
+  const [authed, setAuthedState] = useState(() => isAuthed());
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+
+  if (!authed) {
+    return <LoginGate onSuccess={() => setAuthedState(true)} />;
+  }
+
   return (
     <div className="flex h-screen w-full bg-[#F8FAFC] overflow-hidden font-sans">
       <aside className="w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
@@ -95,7 +105,7 @@ export default function App() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.172-1.172a4 4 0 115.656 5.656L10 17.657"/>
             </svg>
           </div>
-          <span className="font-bold text-lg text-slate-800 tracking-tight">Heli Analytics</span>
+          <span className="font-bold text-lg text-slate-800 tracking-tight">Heli Technology</span>
         </div>
         
         <nav className="flex-1 px-3 space-y-1">
@@ -136,24 +146,59 @@ export default function App() {
           </button>
         </nav>
         
-        <div className="p-6 border-t border-slate-100 space-y-3.5 bg-slate-50/50">
-          <div className="space-y-1.5">
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">System Integration</p>
-            <div className="flex items-center text-xs text-slate-600 font-semibold gap-2">
+        <div className="p-4 border-t border-slate-100 bg-slate-50/50 space-y-3">
+          {/* Profile card */}
+          <div className="relative">
+            {profileMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setProfileMenuOpen(false)} />
+                <div className="absolute bottom-full mb-2 left-0 right-0 z-50 bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-200/70 p-2 space-y-0.5">
+                  <div className="px-3 py-2 border-b border-slate-100 mb-1">
+                    <p className="text-xs font-extrabold text-slate-800">Heli Studio</p>
+                    <p className="text-[10px] text-slate-400 font-semibold">Signed in as <span className="font-mono text-slate-500">{AUTH_USER}</span></p>
+                  </div>
+                  <a href={activeProfileUrl || 'https://dribbble.com/helistudio'} target="_blank" rel="noreferrer"
+                    className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors">
+                    <ExternalLink className="w-3.5 h-3.5 text-slate-400" /> Dribbble profile
+                  </a>
+                  {GITHUB_REPO && (
+                    <a href={`https://github.com/${GITHUB_REPO}`} target="_blank" rel="noreferrer"
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors">
+                      <Settings className="w-3.5 h-3.5 text-slate-400" /> Repository & workflows
+                    </a>
+                  )}
+                  <button
+                    onClick={() => { logout(); setAuthedState(false); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-red-600 hover:bg-red-50 transition-colors">
+                    <LogOut className="w-3.5 h-3.5" /> Sign out
+                  </button>
+                </div>
+              </>
+            )}
+            <button
+              onClick={() => setProfileMenuOpen(!profileMenuOpen)}
+              className={`w-full flex items-center gap-3 p-2.5 rounded-2xl border transition-all ${profileMenuOpen ? 'bg-white border-pink-200 shadow-sm' : 'bg-white border-slate-200 hover:border-pink-200'}`}
+            >
+              <div className="w-9 h-9 pink-gradient rounded-xl flex items-center justify-center text-white text-xs font-black shadow-sm shadow-pink-200/50 flex-shrink-0">
+                HS
+              </div>
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-xs font-extrabold text-slate-800 truncate">Heli Studio</p>
+                <p className="text-[10px] text-slate-400 font-semibold truncate">Design & Growth Team</p>
+              </div>
+              <Settings className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+            </button>
+          </div>
+
+          <div className="space-y-1.5 px-1">
+            <div className="flex items-center text-[11px] text-slate-500 font-semibold gap-2">
               <Cpu className="w-3.5 h-3.5 text-slate-400" />
               <span>{IS_STATIC ? 'Static Mode (GitHub Pages)' : 'Daily Sync (GitHub Actions)'}</span>
             </div>
-            <div className="flex items-center text-xs text-slate-600 font-semibold gap-2">
+            <div className="flex items-center text-[11px] text-slate-500 font-semibold gap-2">
               <Server className="w-3.5 h-3.5 text-slate-400" />
               <span>{IS_STATIC ? 'Data from repo snapshots' : 'Local SQLite DB'}</span>
             </div>
-          </div>
-          <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 font-mono font-semibold">
-            <span>ENV: SELF-HOSTED</span>
-            <span className="flex items-center gap-0.5 text-emerald-600 font-bold">
-              <ShieldCheck className="w-3 h-3" />
-              SSL
-            </span>
           </div>
         </div>
       </aside>
@@ -162,7 +207,7 @@ export default function App() {
         <header className="flex justify-between items-center mb-8 border-b border-slate-100 pb-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-800 tracking-tight">
-              {activeTab === 'dashboard' ? 'Heli Studio Performance' : activeTab === 'history' ? 'Historical Ledger' : 'Growth Analysis & Management Dashboard'}
+              {activeTab === 'dashboard' ? 'Heli Studio Portfolio' : activeTab === 'history' ? 'Historical Ledger' : 'Growth Analysis & Management Dashboard'}
             </h1>
             <p className="text-xs text-slate-400 font-semibold mt-0.5">
               {activeTab === 'dashboard' 
