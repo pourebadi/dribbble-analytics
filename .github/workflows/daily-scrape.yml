@@ -1,0 +1,82 @@
+name: Daily Dribbble Scrape
+
+on:
+  schedule:
+    # 23:50 UTC every day. GitHub Actions cron is ALWAYS in UTC.
+    # For 23:50 Tehran time (UTC+3:30) use:  '20 20 * * *'
+    # For 23:50 New York (EDT, UTC-4)  use:  '50 3 * * *'
+    - cron: '50 23 * * *'
+  workflow_dispatch: {}   # allows manual runs from the Actions tab
+
+permissions:
+  contents: write   # commit the updated database back to the repo
+  pages: write      # redeploy the GitHub Pages dashboard with fresh data
+  id-token: write
+
+concurrency:
+  group: daily-scrape
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Run scraper
+        env:
+          PROFILE_URL: https://dribbble.com/helistudio
+          MAX_SHOTS: '200'
+        run: npm run scrape
+
+      - name: Commit updated data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "No data changes to commit."
+          else
+            git commit -m "chore(data): daily scrape $(date -u +'%Y-%m-%d %H:%M UTC')"
+            git pull --rebase origin ${GITHUB_REF_NAME}
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi
+
+      # Pushes made with GITHUB_TOKEN do NOT trigger other workflows,
+      # so the Pages dashboard is rebuilt and redeployed right here.
+      - name: Build static dashboard
+        env:
+          VITE_STATIC_DATA: 'true'
+        run: |
+          npx vite build --base "/${{ github.event.repository.name }}/" --outDir dist/static
+          mkdir -p dist/static/data
+          cp data/*.json dist/static/data/
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/static
+
+      - name: Deploy dashboard
+        id: deployment
+        uses: actions/deploy-pages@v4
