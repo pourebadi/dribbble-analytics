@@ -11,7 +11,10 @@ import * as dbLayer from './db.ts';
 export const DEFAULT_PROFILE_URL = process.env.PROFILE_URL || 'https://dribbble.com/helistudio';
 export const MAX_SHOTS = parseInt(process.env.MAX_SHOTS || '200', 10);
 
-export async function runSync(profileUrl: string): Promise<{ ok: number; failed: number; total: number }> {
+export async function runSync(
+  profileUrl: string,
+  scraper: typeof scrapeDribbbleProfile = scrapeDribbbleProfile
+): Promise<{ ok: number; failed: number; total: number }> {
   const profile = dbLayer.ensureProfile(profileUrl);
   const profileId = profile!.id;
 
@@ -42,13 +45,25 @@ export async function runSync(profileUrl: string): Promise<{ ok: number; failed:
   try {
     log(`Initializing synchronization process for ${profileUrl}`, 'info');
 
-    const shots = await scrapeDribbbleProfile(profileUrl, MAX_SHOTS, undefined, undefined, log);
+    const shots = await scraper(profileUrl, MAX_SHOTS, undefined, undefined, log);
 
     log('Scraper completed. Writing results to the local database...', 'info');
     dbLayer.applyScrapeResults(profileUrl, shots);
 
     const okShots = shots.filter((s) => s.status === 'ok');
     const failed = shots.length - okShots.length;
+
+    // Make every failure explicitly traceable: URL + exact error, both in the
+    // dashboard console and in the committed data/sync_logs.json.
+    const failedShots = shots.filter((s) => s.status !== 'ok');
+    if (failedShots.length > 0) {
+      log(
+        `FAILED SHOTS (${failedShots.length}): ` +
+          failedShots.map((s) => `${s.url} => ${s.error || 'unknown error'}`).join(' | '),
+        'warn',
+        { failed: failedShots.map((s) => ({ url: s.url, error: s.error })) }
+      );
+    }
     const totals = okShots.reduce(
       (acc, s) => ({
         views: acc.views + (s.views || 0),

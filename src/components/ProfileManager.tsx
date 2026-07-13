@@ -16,7 +16,17 @@ import {
   Trash2
 } from 'lucide-react';
 import { Profile } from '../types.ts';
-import { apiFetchLogs, apiTriggerScrape, IS_STATIC } from '../api.ts';
+import {
+  apiFetchLogs,
+  apiTriggerScrape,
+  IS_STATIC,
+  GITHUB_REPO,
+  WORKFLOW_FILE,
+  getSavedGithubToken,
+  saveGithubToken,
+  apiDispatchGithubWorkflow,
+  apiLatestWorkflowRun,
+} from '../api.ts';
 
 export function ProfileManager({ 
   onProfileSelect, 
@@ -42,6 +52,67 @@ export function ProfileManager({
   const targetUrl = 'https://dribbble.com/helistudio';
 
   const [scrapeError, setScrapeError] = useState<string | null>(null);
+
+  // --- Manual sync via GitHub Actions (static/GitHub Pages mode) ---
+  const [ghState, setGhState] = useState<'idle' | 'need_token' | 'dispatching' | 'running' | 'done' | 'error'>('idle');
+  const [ghMessage, setGhMessage] = useState<string | null>(null);
+  const [tokenInput, setTokenInput] = useState('');
+  const pollRef = useRef<any>(null);
+
+  const dispatchWithToken = async (token: string) => {
+    setGhState('dispatching');
+    setGhMessage(null);
+    try {
+      await apiDispatchGithubWorkflow(token);
+      setGhState('running');
+      setGhMessage('Workflow triggered on GitHub Actions. Scrape + redeploy takes ~5–10 minutes.');
+
+      if (pollRef.current) clearInterval(pollRef.current);
+      let ticks = 0;
+      pollRef.current = setInterval(async () => {
+        ticks++;
+        const run = await apiLatestWorkflowRun();
+        if (run) {
+          if (run.status === 'completed') {
+            clearInterval(pollRef.current);
+            if (run.conclusion === 'success') {
+              setGhState('done');
+              setGhMessage('Sync completed successfully — refresh this page to load the fresh data.');
+            } else {
+              setGhState('error');
+              setGhMessage(`Workflow finished with conclusion: ${run.conclusion}. Check the Actions tab for details.`);
+            }
+          } else {
+            setGhMessage(`Workflow ${run.status.replace('_', ' ')}… (~5–10 min total). Re-runs on the same day replace that day's record.`);
+          }
+        }
+        if (ticks > 45) clearInterval(pollRef.current); // stop after ~15 min
+      }, 20000);
+    } catch (e: any) {
+      setGhState('error');
+      setGhMessage(e?.message || 'Failed to trigger the workflow.');
+      if (/401|403|rejected/i.test(String(e?.message))) saveGithubToken('');
+    }
+  };
+
+  const handleGithubDispatch = async () => {
+    const token = getSavedGithubToken();
+    if (!token) {
+      setGhState('need_token');
+      return;
+    }
+    await dispatchWithToken(token);
+  };
+
+  const handleSaveTokenAndRun = async () => {
+    const t = tokenInput.trim();
+    if (!t) return;
+    saveGithubToken(t);
+    setTokenInput('');
+    await dispatchWithToken(t);
+  };
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   const handleScrape = async () => {
     setLoading(true);
@@ -70,7 +141,6 @@ export function ProfileManager({
     let intervalId: any;
     
     const loadLogs = async () => {
-      if (IS_STATIC) return;
       try {
         const data = await apiFetchLogs(profile.id);
         setLogs(data);
@@ -274,9 +344,29 @@ export function ProfileManager({
           </button>
 
           {IS_STATIC ? (
-            <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 text-emerald-700 px-4 py-2.5 rounded-xl text-xs font-bold">
-              <RefreshCw className="w-4 h-4" />
-              Auto-updates daily at 23:50 via GitHub Actions
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex items-center gap-2">
+                <a
+                  href={GITHUB_REPO ? `https://github.com/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}` : '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 bg-slate-100 border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-200 transition-all"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Actions
+                </a>
+                <button
+                  onClick={handleGithubDispatch}
+                  disabled={ghState === 'dispatching' || ghState === 'running'}
+                  className="flex items-center justify-center gap-2 pink-gradient text-white font-bold py-2.5 px-6 rounded-xl text-sm hover:brightness-105 active:scale-95 disabled:opacity-50 transition-all shadow-md shadow-pink-200/50"
+                >
+                  <RefreshCw className={`w-4 h-4 ${ghState === 'dispatching' || ghState === 'running' ? 'animate-spin' : ''}`} />
+                  {ghState === 'running' ? 'Sync Running…' : 'Trigger Manual Sync'}
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-400 font-medium text-right">
+                Runs on GitHub Actions · re-runs on the same day replace that day's record
+              </p>
             </div>
           ) : (
           <button
@@ -304,6 +394,59 @@ export function ProfileManager({
         <div className="px-5 pb-4 -mt-1">
           <p className="text-xs font-semibold text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
             Manual sync failed: {scrapeError}
+          </p>
+        </div>
+      )}
+
+      {IS_STATIC && ghState === 'need_token' && (
+        <div className="px-5 pb-4 -mt-1">
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+            <p className="text-xs font-bold text-slate-700">One-time setup: paste a GitHub token to enable this button</p>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              Create a <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" className="text-pink-600 font-semibold underline">fine-grained token</a> with
+              access to <span className="font-mono font-semibold">{GITHUB_REPO || 'this repository'}</span> and permission <span className="font-semibold">Actions: Read and write</span>.
+              It is stored only in this browser (localStorage) and sent only to api.github.com.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={tokenInput}
+                onChange={(e) => setTokenInput(e.target.value)}
+                placeholder="github_pat_..."
+                className="flex-1 text-xs font-mono border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-200"
+              />
+              <button
+                onClick={handleSaveTokenAndRun}
+                disabled={!tokenInput.trim()}
+                className="pink-gradient text-white text-xs font-bold px-4 py-2 rounded-lg disabled:opacity-50"
+              >
+                Save & Run
+              </button>
+              <button
+                onClick={() => { setGhState('idle'); setTokenInput(''); }}
+                className="text-xs font-bold text-slate-500 px-3 py-2 rounded-lg hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {IS_STATIC && ghMessage && ghState !== 'need_token' && (
+        <div className="px-5 pb-4 -mt-1">
+          <p className={`text-xs font-semibold rounded-lg px-3 py-2 border ${
+            ghState === 'error' ? 'text-red-600 bg-red-50 border-red-100'
+            : ghState === 'done' ? 'text-emerald-700 bg-emerald-50 border-emerald-100'
+            : 'text-sky-700 bg-sky-50 border-sky-100'
+          }`}>
+            {ghMessage}
+            {ghState === 'error' && GITHUB_REPO && (
+              <>
+                {' '}
+                <a className="underline font-bold" href={`https://github.com/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}`} target="_blank" rel="noopener noreferrer">Open Actions</a>
+              </>
+            )}
           </p>
         </div>
       )}

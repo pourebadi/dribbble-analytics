@@ -47,7 +47,16 @@ export async function apiFetchShots(profileUrl?: string | null): Promise<Shot[]>
 }
 
 export async function apiFetchLogs(profileId: string): Promise<any[]> {
-  if (IS_STATIC) return []; // no live logs on the static deployment
+  if (IS_STATIC) {
+    // Read the committed log trail of the latest sync (written by the daily
+    // workflow). Returns [] if no sync has exported logs yet.
+    try {
+      const data = await getJson(`${BASE}data/sync_logs.json`);
+      return (data && data[profileId]) || [];
+    } catch {
+      return [];
+    }
+  }
   return getJson(`/api/profiles/${profileId}/logs`);
 }
 
@@ -69,5 +78,66 @@ export async function apiTriggerScrape(url: string): Promise<void> {
       if (data && data.error) msg = data.error;
     } catch (_) {}
     throw new Error(msg);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GitHub Actions integration (static/GitHub Pages mode).
+// Lets the dashboard trigger the "Daily Dribbble Scrape" workflow directly.
+// The token is stored ONLY in the visitor's own browser (localStorage).
+// ---------------------------------------------------------------------------
+export const GITHUB_REPO = (import.meta.env.VITE_GITHUB_REPO as string) || '';
+export const WORKFLOW_FILE = 'daily-scrape.yml';
+const TOKEN_KEY = 'gh_actions_token';
+
+export function getSavedGithubToken(): string {
+  try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; }
+}
+export function saveGithubToken(token: string) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch { /* ignore */ }
+}
+
+export async function apiDispatchGithubWorkflow(token: string): Promise<void> {
+  if (!GITHUB_REPO) throw new Error('Repository is not configured (VITE_GITHUB_REPO).');
+  const res = await fetch(
+    `https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ ref: 'main' }),
+    }
+  );
+  if (res.status === 401 || res.status === 403) {
+    throw new Error('GitHub rejected the token (401/403). Make sure it has Actions: Read and write permission on this repository.');
+  }
+  if (!res.ok && res.status !== 204) {
+    let msg = `GitHub returned status ${res.status}`;
+    try { const d = await res.json(); if (d && d.message) msg = d.message; } catch (_) {}
+    throw new Error(msg);
+  }
+}
+
+// Public repos expose run status without a token.
+export async function apiLatestWorkflowRun(): Promise<{ status: string; conclusion: string | null; html_url: string } | null> {
+  if (!GITHUB_REPO) return null;
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}/runs?per_page=1`,
+      { headers: { Accept: 'application/vnd.github+json' } }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const run = data.workflow_runs && data.workflow_runs[0];
+    if (!run) return null;
+    return { status: run.status, conclusion: run.conclusion, html_url: run.html_url };
+  } catch {
+    return null;
   }
 }
