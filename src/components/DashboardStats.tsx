@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Shot, Profile } from '../types.ts';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, LineChart, Line, ComposedChart, Legend, ScatterChart, Scatter, ZAxis, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, LineChart, Line, ComposedChart, Legend, ScatterChart, Scatter, ZAxis, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Treemap, PieChart, Pie, Cell } from 'recharts';
 import { startOfWeek, startOfMonth, format, parseISO } from 'date-fns';
 import { DateRangePicker } from './DateRangePicker.tsx';
 import { 
@@ -27,6 +27,27 @@ import {
   Download,
   Info
 } from 'lucide-react';
+
+// Custom treemap cell — rounded tiles with inline labels
+const TreemapCell = (props: any) => {
+  const { x, y, width, height, name, fill, size } = props;
+  if (!width || !height || width <= 2 || height <= 2) return null;
+  return (
+    <g>
+      <rect x={x + 1.5} y={y + 1.5} width={Math.max(0, width - 3)} height={Math.max(0, height - 3)} rx={7} fill={fill || '#EC4899'} />
+      {width > 72 && height > 40 && (
+        <>
+          <text x={x + 9} y={y + 19} fontSize={10} fontWeight={800} fill="#ffffff">
+            {String(name || '').slice(0, Math.max(4, Math.floor((width - 16) / 6.5)))}
+          </text>
+          <text x={x + 9} y={y + 32} fontSize={9} fontWeight={600} fill="rgba(255,255,255,0.85)">
+            {Number(size || 0).toLocaleString()} views
+          </text>
+        </>
+      )}
+    </g>
+  );
+};
 
 export function DashboardStats({ 
   shots, 
@@ -492,6 +513,59 @@ export function DashboardStats({
       : rangePreset === 'custom' ? `${startStr} → ${endStr}`
       : `last ${presetDays[rangePreset]} day${presetDays[rangePreset] > 1 ? 's' : ''}`;
 
+    // ---- Portfolio Map (treemap): views by shot, colored by engagement rate ----
+    const engOf = (sh: Shot) => (sh.views ? (((sh.likes || 0) + (sh.saves || 0) + (sh.comments || 0)) / sh.views) : 0);
+    const engVals = validShots.map(engOf);
+    const engMin = Math.min(...engVals, 0);
+    const engMax = Math.max(...engVals, 0.0001);
+    const mixColor = (t: number) => {
+      const a = [96, 165, 250]; // blue (low engagement)
+      const b = [236, 72, 153]; // pink (high engagement)
+      const c = a.map((v, i2) => Math.round(v + (b[i2] - v) * Math.min(1, Math.max(0, t))));
+      return `rgb(${c[0]},${c[1]},${c[2]})`;
+    };
+    const treemapData = [...validShots]
+      .sort((a, b) => (b.views || 0) - (a.views || 0))
+      .slice(0, 24)
+      .map(sh => ({
+        name: getShotTitle(sh),
+        size: sh.views || 0,
+        fill: mixColor((engOf(sh) - engMin) / (engMax - engMin || 1)),
+      }));
+
+    // ---- Engagement mix donut ----
+    const engagementMix = [
+      { name: 'Likes', value: stats.likes, color: '#EA4C89' },
+      { name: 'Saves', value: stats.saves, color: '#8B5CF6' },
+      { name: 'Comments', value: stats.comments, color: '#10B981' },
+    ];
+    const totalInteractions = stats.likes + stats.saves + stats.comments;
+
+    // ---- Daily activity heatmap (views gained per day, GitHub-style) ----
+    const gainedByDate: Record<string, number> = {};
+    sortedHistory.forEach((h, i2) => {
+      if (i2 > 0) gainedByDate[h.date] = Math.max(0, h.views - sortedHistory[i2 - 1].views);
+    });
+    const maxDailyGain = Math.max(1, ...Object.values(gainedByDate));
+    const heatmapWeeks: { iso: string; inLog: boolean; gain: number | null }[][] = (() => {
+      const endD = new Date(lastLoggedDate + 'T00:00:00Z');
+      const endMonday = new Date(endD);
+      endMonday.setUTCDate(endD.getUTCDate() - ((endD.getUTCDay() + 6) % 7));
+      const weeks: { iso: string; inLog: boolean; gain: number | null }[][] = [];
+      for (let w = 15; w >= 0; w--) {
+        const col: { iso: string; inLog: boolean; gain: number | null }[] = [];
+        for (let d = 0; d < 7; d++) {
+          const cur = new Date(endMonday);
+          cur.setUTCDate(endMonday.getUTCDate() - w * 7 + d);
+          const iso = cur.toISOString().split('T')[0];
+          const inLog = firstLoggedDate !== null && iso >= firstLoggedDate && iso <= lastLoggedDate;
+          col.push({ iso, inLog, gain: iso in gainedByDate ? gainedByDate[iso] : null });
+        }
+        weeks.push(col);
+      }
+      return weeks;
+    })();
+
     // ---- TOP SHOTS growth within the selected range ----
     const cutoffStr = isoAddDays(startStr, -1);
 
@@ -535,8 +609,8 @@ export function DashboardStats({
         .sort((a, b) => (b[source][metric] || 0) - (a[source][metric] || 0))
         .slice(0, 8)
         .map(({ shot, growth, totals }) => ({
-          name: getShotTitle(shot).substring(0, 22) + (getShotTitle(shot).length > 22 ? '…' : ''),
-          fullName: getShotTitle(shot),
+          name: getShotTitle(shot),
+          imageUrl: shot.imageUrl || null,
           value: topShotsMode === 'growth' ? growth[metric] : totals[metric],
           gained: growth[metric],
           total: totals[metric],
@@ -868,6 +942,117 @@ export function DashboardStats({
           </div>
         </div>
 
+        {/* ===== Daily Activity Heatmap ===== */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <div className="mb-4 flex justify-between items-end">
+            <div>
+              <h4 className="font-bold text-slate-800 text-sm">Daily Activity Heatmap</h4>
+              <p className="text-[11px] text-slate-500">New views gained each day over the last 16 weeks — spot hot streaks at a glance</p>
+            </div>
+            <div className="flex items-center gap-1.5 text-[9px] font-bold text-slate-400">
+              Less
+              {[0.12, 0.3, 0.55, 0.8, 1].map(a => (
+                <span key={a} className="w-3 h-3 rounded" style={{ background: `rgba(236,72,153,${a})` }} />
+              ))}
+              More
+            </div>
+          </div>
+          <div className="flex gap-[3px] overflow-x-auto pb-1">
+            {heatmapWeeks.map((col, ci) => (
+              <div key={ci} className="flex flex-col gap-[3px]">
+                {col.map(cell => {
+                  const intensity = cell.gain !== null ? 0.15 + 0.85 * (cell.gain / maxDailyGain) : 0;
+                  const bg = !cell.inLog
+                    ? '#f8fafc'
+                    : cell.gain === null || cell.gain === 0
+                    ? '#f1f5f9'
+                    : `rgba(236,72,153,${intensity.toFixed(2)})`;
+                  return (
+                    <div
+                      key={cell.iso}
+                      title={cell.inLog ? `${cell.iso} — ${cell.gain !== null ? `+${cell.gain.toLocaleString()} views` : 'baseline day'}` : cell.iso}
+                      className="w-3.5 h-3.5 rounded-[4px] border border-slate-100"
+                      style={{ background: bg }}
+                    />
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-slate-400 font-semibold mt-3">
+            Each column is a week (Mon→Sun). Cells fill in as the daily sync logs history — {loggedDaysCount} day{loggedDaysCount !== 1 ? 's' : ''} logged so far.
+          </p>
+        </div>
+
+        {/* ===== Portfolio Map + Engagement Mix ===== */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <div className="mb-4 flex justify-between items-end">
+              <div>
+                <h4 className="font-bold text-slate-800 text-sm">Portfolio Map</h4>
+                <p className="text-[11px] text-slate-500">Tile size = total views · color = engagement quality (blue → pink)</p>
+              </div>
+              <div className="flex items-center gap-1.5 text-[9px] font-bold text-slate-400">
+                <span className="w-3 h-3 rounded" style={{ background: 'rgb(96,165,250)' }} /> low eng
+                <span className="w-3 h-3 rounded ml-1" style={{ background: 'rgb(236,72,153)' }} /> high eng
+              </div>
+            </div>
+            <div className="h-[300px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <Treemap data={treemapData} dataKey="size" nameKey="name" stroke="#fff" isAnimationActive={false} content={<TreemapCell />}>
+                  <Tooltip
+                    contentStyle={{ borderRadius: '12px', border: '1px solid #f1f5f9', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', background: '#fff', fontSize: '12px' }}
+                    formatter={(v: any) => [`${Number(v).toLocaleString()} views`, '']}
+                    labelFormatter={() => ''}
+                  />
+                </Treemap>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col">
+            <div className="mb-2">
+              <h4 className="font-bold text-slate-800 text-sm">Engagement Mix</h4>
+              <p className="text-[11px] text-slate-500">How the audience interacts across the portfolio</p>
+            </div>
+            <div className="flex-1 min-h-[220px] relative">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={engagementMix}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius="62%"
+                    outerRadius="88%"
+                    paddingAngle={3}
+                    cornerRadius={6}
+                    stroke="none"
+                  >
+                    {engagementMix.map(e => <Cell key={e.name} fill={e.color} />)}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ borderRadius: '12px', border: '1px solid #f1f5f9', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', background: '#fff', fontSize: '12px' }}
+                    formatter={(v: any, n: any) => [`${Number(v).toLocaleString()} (${totalInteractions > 0 ? (Number(v) / totalInteractions * 100).toFixed(1) : 0}%)`, n]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="text-xl font-black text-slate-800 font-mono">{totalInteractions.toLocaleString()}</span>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">interactions</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-slate-100">
+              {engagementMix.map(e => (
+                <div key={e.name} className="text-center">
+                  <span className="inline-block w-2 h-2 rounded-full mr-1 align-middle" style={{ background: e.color }} />
+                  <span className="text-[10px] font-bold text-slate-500">{e.name}</span>
+                  <p className="text-xs font-black text-slate-800 font-mono">{e.value.toLocaleString()}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
         {/* ===== Top Shots Rankings (per selected range) ===== */}
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <div className="mb-6 flex flex-col sm:flex-row justify-between sm:items-end gap-3">
@@ -906,32 +1091,42 @@ export function DashboardStats({
                     <span className="text-xs font-bold text-slate-700">{label}</span>
                   </div>
                   {data.every(d => d.value === 0) ? (
-                    <div className="h-[260px] flex items-center justify-center text-xs text-slate-400 font-medium">
+                    <div className="h-[240px] flex items-center justify-center text-xs text-slate-400 font-medium">
                       No {topShotsMode === 'growth' ? `growth recorded in the ${rangeWindowLabel} yet` : 'data yet'} — run more daily syncs.
                     </div>
                   ) : (
-                    <div className="h-[260px] w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart layout="vertical" data={data} margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                          <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#94a3b8' }} />
-                          <YAxis type="category" dataKey="name" width={140} axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#475569', fontWeight: 600 }} />
-                          <Tooltip
-                            cursor={{ fill: '#f8fafc' }}
-                            contentStyle={{ borderRadius: '12px', border: '1px solid #f1f5f9', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', background: '#fff', fontSize: '12px' }}
-                            formatter={(_value: any, _name: any, entry: any) => {
-                              const p = entry?.payload;
-                              if (!p) return [_value, ''];
-                              return [
-                                `${(topShotsMode === 'growth' ? p.gained : p.total).toLocaleString()} (${topShotsMode === 'growth' ? `total: ${p.total.toLocaleString()}` : `gained ${rangeWindowLabel}: ${p.gained.toLocaleString()}`})`,
-                                label,
-                              ];
-                            }}
-                            labelFormatter={(l: any, payload: any) => payload?.[0]?.payload?.fullName || l}
-                          />
-                          <Bar dataKey="value" fill={color} radius={[0, 4, 4, 0]} maxBarSize={18} />
-                        </BarChart>
-                      </ResponsiveContainer>
+                    <div className="space-y-1">
+                      {data.slice(0, 6).map((d, idx) => {
+                        const maxVal = data[0].value || 1;
+                        return (
+                          <a
+                            key={d.url}
+                            href={d.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="group flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-slate-50 transition-colors"
+                          >
+                            <span className={`w-5 text-center text-[11px] font-black font-mono ${idx === 0 ? 'text-pink-500' : 'text-slate-300'}`}>{idx + 1}</span>
+                            <div className="w-10 h-10 rounded-lg overflow-hidden bg-slate-100 border border-slate-200/60 flex-shrink-0">
+                              {d.imageUrl ? (
+                                <img src={d.imageUrl} alt="" referrerPolicy="no-referrer" loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-[9px] font-black text-slate-400">{d.name.slice(0, 2).toUpperCase()}</div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold text-slate-700 truncate group-hover:text-pink-600 transition-colors">{d.name}</p>
+                              <div className="mt-1.5 w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.max(3, (d.value / maxVal) * 100)}%`, background: color }} />
+                              </div>
+                            </div>
+                            <div className="text-right flex-shrink-0 pl-1">
+                              <p className="text-xs font-black text-slate-800 font-mono">{topShotsMode === 'growth' ? '+' : ''}{d.value.toLocaleString()}</p>
+                              <p className="text-[9px] text-slate-400 font-semibold">{topShotsMode === 'growth' ? `total ${d.total.toLocaleString()}` : `+${d.gained.toLocaleString()} in range`}</p>
+                            </div>
+                          </a>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

@@ -10,7 +10,46 @@ import { Shot, Profile } from './types.ts';
 import { apiFetchProfiles, apiFetchShots, IS_STATIC, GITHUB_REPO } from './api.ts';
 import { LoginGate } from './components/LoginGate.tsx';
 import { isAuthed, logout, AUTH_USER } from './auth.ts';
-import { LogOut, Settings, ExternalLink } from 'lucide-react';
+import { LogOut, Settings, ExternalLink, Timer } from 'lucide-react';
+
+/**
+ * Countdown to the next automatic scrape.
+ * The daily workflow runs at 20:20 UTC (= 23:50 Asia/Tehran) — keep in sync
+ * with .github/workflows/daily-scrape.yml.
+ */
+const SYNC_UTC_HOUR = 20;
+const SYNC_UTC_MINUTE = 20;
+
+function NextSyncCountdown() {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const iv = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const next = new Date(now);
+  next.setUTCHours(SYNC_UTC_HOUR, SYNC_UTC_MINUTE, 0, 0);
+  if (next.getTime() <= now) next.setUTCDate(next.getUTCDate() + 1);
+
+  const diffMin = Math.max(0, Math.round((next.getTime() - now) / 60000));
+  const h = Math.floor(diffMin / 60);
+  const m = diffMin % 60;
+  const localTime = next.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  return (
+    <span
+      title={`Next automatic scrape at ${localTime} (your local time)`}
+      className="flex items-center gap-2 text-xs font-bold text-slate-600 bg-white border border-slate-200 px-3.5 py-1.5 rounded-xl shadow-sm"
+    >
+      <span className="relative flex h-2 w-2">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+      </span>
+      <Timer className="w-3.5 h-3.5 text-slate-400" />
+      Next auto-sync in <span className="font-mono text-pink-600">{h > 0 ? `${h}h ` : ''}{m}m</span>
+    </span>
+  );
+}
 import { LayoutDashboard, LineChart, History, Cpu, Server, ShieldCheck } from 'lucide-react';
 
 export default function App() {
@@ -218,9 +257,7 @@ export default function App() {
             </p>
           </div>
           <div className="flex items-center space-x-4">
-            <span className="text-xs text-slate-400 font-semibold font-mono bg-slate-100 px-3 py-1 rounded-lg">
-              UTC: {new Date().toISOString().split('T')[0]}
-            </span>
+            <NextSyncCountdown />
           </div>
         </header>
 
