@@ -112,3 +112,4 @@ dbLayer.addLog(dbLayer.profileIdFromUrl(profileUrl), `Seeded ${ok} shots from CS
 dbLayer.exportJsonSnapshot();
 
 console.log(`Seeded ${ok} ok / ${shots.length} total shots into ${dbLayer.DB_PATH}`);
+dbLayer.closeDb();
