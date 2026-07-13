@@ -34,6 +34,7 @@ jobs:
       - name: Build static dashboard
         env:
           VITE_STATIC_DATA: 'true'
+          VITE_GITHUB_REPO: ${{ github.repository }}
         run: |
           npx vite build --base "/${{ github.event.repository.name }}/" --outDir dist/static
           mkdir -p dist/static/data

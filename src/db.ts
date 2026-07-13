@@ -322,6 +322,16 @@ export function exportJsonSnapshot() {
   const shots = getShots();
   fs.writeFileSync(path.join(DATA_DIR, 'profiles.json'), JSON.stringify(profiles, null, 2), 'utf-8');
   fs.writeFileSync(path.join(DATA_DIR, 'shots.json'), JSON.stringify(shots, null, 2), 'utf-8');
+
+  // Persist the full log trail of the latest sync per profile. This file is
+  // committed by the daily workflow, so every run's diagnostics (including
+  // per-shot failures with their exact errors) live in the repo history and
+  // are shown in the dashboard's "Show Console" panel on GitHub Pages.
+  const logsByProfile: Record<string, any[]> = {};
+  for (const p of profiles) {
+    if (p) logsByProfile[p.id] = getLogs(p.id);
+  }
+  fs.writeFileSync(path.join(DATA_DIR, 'sync_logs.json'), JSON.stringify(logsByProfile, null, 2), 'utf-8');
 }
 
 export default db;

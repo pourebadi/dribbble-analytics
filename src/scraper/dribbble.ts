@@ -45,7 +45,7 @@ const SETTINGS = {
   modalTimeoutMs: 10000,
   pageDelayMs: 1200,
   scrollDelayMs: 1500,
-  sameCountRoundsLimit: 6,
+  sameCountRoundsLimit: 8,
   maxRetries: 2,
   viewport: { width: 1366, height: 900 },
   userAgent:
@@ -152,6 +152,7 @@ async function collectShotUrls(
   const urls = new Set<string>();
   let sameCountRounds = 0;
   let round = 0;
+  let loadMoreClicks = 0;
 
   while (urls.size < maxShots && sameCountRounds < SETTINGS.sameCountRoundsLimit) {
     round++;
@@ -175,7 +176,26 @@ async function collectShotUrls(
       });
     }
 
+    // If scrolling stopped yielding new shots, try the "Load more work"
+    // button some profiles show instead of pure infinite scroll.
+    if (sameCountRounds >= 2 && loadMoreClicks < 5) {
+      try {
+        const loadMore = page.getByRole('button', { name: /load more/i }).first();
+        if (await loadMore.isVisible({ timeout: 1000 })) {
+          await loadMore.click({ timeout: 3000 });
+          loadMoreClicks++;
+          sameCountRounds = 0;
+          if (onLog) await onLog('Clicked "Load more" to reveal additional shots.', 'info');
+          await page.waitForTimeout(SETTINGS.scrollDelayMs);
+        }
+      } catch {
+        // no such button — fine
+      }
+    }
+
+    // Scroll: wheel (triggers lazy-load listeners) + hard jump to the bottom
     await page.mouse.wheel(0, 5000);
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.waitForTimeout(SETTINGS.scrollDelayMs);
   }
 
@@ -232,6 +252,17 @@ async function scrapeOneShot(
           .getAttribute('content', { timeout: 2000 });
       } catch {
         /* ignore */
+      }
+      if (!imageUrl) {
+        // Fallback: first uploaded media image on the shot page
+        try {
+          imageUrl = await page
+            .locator('img[src*="cdn.dribbble.com/userupload"]')
+            .first()
+            .getAttribute('src', { timeout: 2000 });
+        } catch {
+          /* ignore */
+        }
       }
 
       return {
