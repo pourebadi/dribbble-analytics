@@ -1,0 +1,19 @@
+services:
+  dribbble-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PROFILE_URL=https://dribbble.com/helistudio
+      # Enable ONLY if you want the server itself to scrape on a schedule
+      # (not needed when the GitHub Actions daily workflow is active):
+      # - ENABLE_CRON=true
+      # - CRON_SCHEDULE=50 23 * * *
+      # - CRON_TZ=Asia/Tehran
+    volumes:
+      # SQLite database + JSON snapshots persist here
+      - ./data:/app/data
+    restart: unless-stopped

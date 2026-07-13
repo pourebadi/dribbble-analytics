@@ -1,0 +1,19 @@
+[
+  {
+    "id": "aHR0cHM6Ly9kcmliYmJsZS5jb20vaGVsaXN0dWRpbw",
+    "url": "https://dribbble.com/helistudio",
+    "status": "completed",
+    "createdAt": "2026-07-13T14:27:50.942Z",
+    "startedAt": null,
+    "lastScrapedAt": "2026-07-13T14:27:50.944Z",
+    "error": null,
+    "progressMessage": null,
+    "scrapedCount": 66,
+    "totalCount": 66,
+    "lastRunStats": {
+      "successCount": 66,
+      "failedCount": 0,
+      "total": 66
+    }
+  }
+]
