@@ -49,6 +49,7 @@ export function DashboardStats({
   const [expandedShotUrl, setExpandedShotUrl] = useState<string | null>(null);
   // Chart states
   const [chartMetric, setChartMetric] = useState<'likes' | 'views' | 'saves' | 'comments'>('views');
+
   const [chartViewMode, setChartViewMode] = useState<'trend' | 'distribution'>('trend');
   const [rangePreset, setRangePreset] = useState<'1d' | '3d' | '7d' | '30d' | '90d' | '120d' | 'all' | 'custom'>('30d');
   const [customStart, setCustomStart] = useState('');
@@ -255,6 +256,14 @@ export function DashboardStats({
   }, [filteredShots, currentPage, itemsPerPage]);
 
   const totalPages = Math.ceil(filteredShots.length / itemsPerPage) || 1;
+
+// Portfolio-relative helpers for the expanded shot panel
+  const avgViewsPerShot = validShots.length > 0 ? stats.views / validShots.length : 0;
+  const viewsRank = useMemo(() => {
+    const m = new Map<string, number>();
+    [...validShots].sort((a, b) => (b.views || 0) - (a.views || 0)).forEach((s, i) => m.set(s.url, i + 1));
+    return m;
+  }, [validShots]);
 
   // Aggregate account metrics over time (from history).
   // CARRY-FORWARD: for every date on the timeline, each shot contributes its
@@ -1503,7 +1512,23 @@ export function DashboardStats({
                     {paginatedShots.map((shot, i) => {
                       const isExpanded = expandedShotUrl === shot.url;
                       const itemEngagement = shot.views ? ((shot.likes || 0) / shot.views * 100).toFixed(2) + '%' : '0%';
-                      
+
+                      // Per-shot insights for the expanded panel (work even with a single history point)
+                      const shotHist = (Array.isArray(shot.history) ? shot.history : []).filter((h: any) => h && h.date);
+                      const postedDate = shot.posted ? new Date(shot.posted) : null;
+                      const daysSincePosted = postedDate && !isNaN(postedDate.getTime())
+                        ? Math.max(1, Math.round((Date.now() - postedDate.getTime()) / 86400000))
+                        : null;
+                      const viewsPerDay = daysSincePosted ? Math.round((shot.views || 0) / daysSincePosted) : null;
+                      const shotRank = viewsRank.get(shot.url) || null;
+                      const vsAvg = avgViewsPerShot > 0 ? (shot.views || 0) / avgViewsPerShot : null;
+                      const fullEngagement = shot.views
+                        ? (((shot.likes || 0) + (shot.saves || 0) + (shot.comments || 0)) / shot.views * 100).toFixed(2)
+                        : '0.00';
+                      const lastGain = shotHist.length >= 2
+                        ? Math.max(0, (shotHist[shotHist.length - 1].views || 0) - (shotHist[shotHist.length - 2].views || 0))
+                        : null;
+
                       return (
                         <React.Fragment key={i}>
                           <tr 
@@ -1670,18 +1695,34 @@ export function DashboardStats({
                                         <span className="text-[10px] font-mono text-slate-400">Shot-Level Database Node</span>
                                       </div>
 
-                                      <div className="h-[180px] w-full bg-white border border-slate-200/60 rounded-xl p-3 relative">
-                                        {(!shot.history || shot.history.length <= 1) && (
-                                          <div className="absolute inset-0 bg-white/80 flex flex-col items-center justify-center text-center p-4">
-                                            <Info className="w-4 h-4 text-pink-500 animate-bounce mb-1" />
-                                            <p className="text-[11px] text-slate-700 font-bold">Waiting for Subsequent Day Scrapes</p>
-                                            <p className="text-[10px] text-slate-400 mt-0.5 max-w-xs">Growth charts build dynamically as daily scrape loops accumulate history metrics over time.</p>
-                                          </div>
-                                        )}
+                                      {/* Insight chips — meaningful even from the first sync */}
+                                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                                        <div className="bg-white border border-slate-200/60 rounded-xl px-3 py-2">
+                                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Views / Day</p>
+                                          <p className="text-sm font-black text-slate-800 font-mono">{viewsPerDay !== null ? viewsPerDay.toLocaleString() : '—'}</p>
+                                          <p className="text-[9px] text-slate-400 font-medium">{daysSincePosted ? `live for ${daysSincePosted}d` : 'no publish date'}</p>
+                                        </div>
+                                        <div className="bg-white border border-slate-200/60 rounded-xl px-3 py-2">
+                                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Portfolio Rank</p>
+                                          <p className="text-sm font-black text-slate-800 font-mono">{shotRank ? `#${shotRank}` : '—'}<span className="text-[10px] text-slate-400 font-semibold"> / {validShots.length}</span></p>
+                                          <p className={`text-[9px] font-bold ${vsAvg !== null && vsAvg >= 1 ? 'text-emerald-600' : 'text-slate-400'}`}>{vsAvg !== null ? `${vsAvg.toFixed(1)}× portfolio avg` : ''}</p>
+                                        </div>
+                                        <div className="bg-white border border-slate-200/60 rounded-xl px-3 py-2">
+                                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Engagement</p>
+                                          <p className="text-sm font-black text-slate-800 font-mono">{fullEngagement}%</p>
+                                          <p className="text-[9px] text-slate-400 font-medium">likes+saves+comments / views</p>
+                                        </div>
+                                        <div className="bg-white border border-slate-200/60 rounded-xl px-3 py-2">
+                                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Last Sync Gain</p>
+                                          <p className={`text-sm font-black font-mono ${lastGain !== null ? 'text-emerald-600' : 'text-slate-400'}`}>{lastGain !== null ? `+${lastGain.toLocaleString()}` : '—'}</p>
+                                          <p className="text-[9px] text-slate-400 font-medium">{lastGain !== null ? 'views vs previous day' : 'needs 2+ logged days'}</p>
+                                        </div>
+                                      </div>
 
-                                        {shot.history && shot.history.length > 0 ? (
+                                      <div className="h-[180px] w-full bg-white border border-slate-200/60 rounded-xl p-3 relative">
+                                        {shotHist.length >= 2 ? (
                                           <ResponsiveContainer width="100%" height="100%">
-                                            <AreaChart data={shot.history.map(h => ({
+                                            <AreaChart data={shotHist.map(h => ({
                                               name: new Date(h.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
                                               views: h.views,
                                               likes: h.likes,
@@ -1699,10 +1740,21 @@ export function DashboardStats({
                                               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#64748b' }} />
                                               <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#64748b' }} />
                                               <Tooltip contentStyle={{ fontSize: '11px', borderRadius: '8px' }} />
-                                              <Area type="monotone" dataKey="value" name={chartMetric.toUpperCase()} stroke="#EA4C89" strokeWidth={2.5} fillOpacity={1} fill={`url(#colorShot_${i})`} />
+                                              <Area type="monotone" dataKey="value" name={chartMetric.toUpperCase()} stroke="#EA4C89" strokeWidth={2.5} dot={{ r: 3, fill: '#EA4C89' }} fillOpacity={1} fill={`url(#colorShot_${i})`} />
                                             </AreaChart>
                                           </ResponsiveContainer>
-                                        ) : null}
+                                        ) : (
+                                          <div className="h-full flex flex-col items-center justify-center text-center gap-1.5">
+                                            <div className="flex items-baseline gap-2">
+                                              <span className="text-2xl font-black text-slate-800 font-mono">{(shot[chartMetric] || 0).toLocaleString()}</span>
+                                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{chartMetric} today</span>
+                                            </div>
+                                            <p className="text-[10px] text-slate-400 font-medium max-w-xs">
+                                              Trend line starts with the next daily sync
+                                              {shotHist.length === 1 ? ` — first point logged ${new Date(shotHist[0].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}.
+                                            </p>
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
 
