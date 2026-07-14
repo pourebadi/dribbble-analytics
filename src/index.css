@@ -38,3 +38,15 @@ body {
   background: #EA4C89;
   transition: width 0.5s ease;
 }
+
+
+/* Dark mode v1: perceptual inversion with hue preservation; media re-inverted */
+html.dark-invert {
+  filter: invert(0.92) hue-rotate(180deg);
+  background: #0d1117;
+}
+html.dark-invert img,
+html.dark-invert video,
+html.dark-invert [data-no-invert] {
+  filter: invert(1) hue-rotate(180deg);
+}

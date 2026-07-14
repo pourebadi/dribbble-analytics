@@ -45,7 +45,16 @@ export async function runSync(
   try {
     log(`Initializing synchronization process for ${profileUrl}`, 'info');
 
-    const shots = await scraper(profileUrl, MAX_SHOTS, undefined, undefined, log);
+    const result = await scraper(profileUrl, MAX_SHOTS, undefined, undefined, log);
+    const shots = result.shots;
+
+    if (result.profile && (result.profile.followers !== null || result.profile.following !== null)) {
+      dbLayer.recordProfileHistory(profileUrl, result.profile.followers, result.profile.following);
+      dbLayer.updateProfile(profileUrl, { followers: result.profile.followers, following: result.profile.following });
+      log(`Recorded profile snapshot: ${result.profile.followers ?? 'n/a'} followers.`, 'info');
+    } else {
+      log('Profile follower stats were not found on the page this run.', 'warn');
+    }
 
     log('Scraper completed. Writing results to the local database...', 'info');
     dbLayer.applyScrapeResults(profileUrl, shots);

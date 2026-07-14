@@ -3,6 +3,7 @@ import { Shot, Profile } from '../types.ts';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, LineChart, Line, ComposedChart, Legend, ScatterChart, Scatter, ZAxis, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ReferenceLine, PieChart, Pie, Cell } from 'recharts';
 import { startOfWeek, startOfMonth, format, parseISO } from 'date-fns';
 import { DateRangePicker } from './DateRangePicker.tsx';
+import { apiAddAnnotation, IS_STATIC, GITHUB_REPO } from '../api.ts';
 import { 
   Eye, 
   Heart, 
@@ -28,15 +29,97 @@ import {
   Info
 } from 'lucide-react';
 
+// Copy a public read-only share link for a chart (opens without login)
+function ShareButton({ chartId }: { chartId: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    const url = `${window.location.origin}${window.location.pathname}#/share/${chartId}`;
+    try { await navigator.clipboard.writeText(url); } catch { window.prompt('Copy this link:', url); }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <button
+      onClick={copy}
+      title="Copy a public read-only link to this chart (no login required)"
+      className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md border transition-all ${copied ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-50 text-slate-500 border-slate-200 hover:text-pink-600 hover:border-pink-200'}`}
+    >
+      <ExternalLink className="w-3 h-3" />
+      {copied ? 'Link copied!' : 'Share'}
+    </button>
+  );
+}
+
+// Chart event markers manager. In server mode events are added via the API;
+// on the static (GitHub Pages) dashboard they are edited in data/annotations.json.
+function EventsCard({ annotations, annotationMarks }: { annotations: any[]; annotationMarks: any[] }) {
+  const [date, setDate] = useState('');
+  const [label, setLabel] = useState('');
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const add = async () => {
+    if (!date || !label.trim() || busy) return;
+    setBusy(true); setMsg(null);
+    try {
+      await apiAddAnnotation(date, label.trim());
+      setMsg('Event saved — it will appear on day-level charts. Refresh to see it.');
+      setDate(''); setLabel('');
+    } catch (e: any) {
+      if (e?.message === 'static' && GITHUB_REPO) {
+        setMsg('On the static dashboard events are stored in the repo — use "Edit on GitHub" below, add a row like {"date":"2026-07-20","label":"Campaign X"}, and the next deploy shows it.');
+      } else {
+        setMsg(e?.message || 'Failed to save event.');
+      }
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+      <div className="mb-4 flex flex-col sm:flex-row justify-between sm:items-end gap-2">
+        <div>
+          <h4 className="font-bold text-slate-800 text-sm">Chart Events</h4>
+          <p className="text-[11px] text-slate-500">Mark launches & campaigns on the timeline so spikes never lose their story ({annotations.length} saved{annotationMarks.length ? `, ${annotationMarks.length} visible in range` : ''})</p>
+        </div>
+        {IS_STATIC && GITHUB_REPO && (
+          <a href={`https://github.com/${GITHUB_REPO}/edit/main/data/annotations.json`} target="_blank" rel="noreferrer"
+            className="text-[11px] font-bold text-slate-500 hover:text-pink-600 underline self-start">Edit on GitHub ↗</a>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input type="date" value={date} onChange={e => setDate(e.target.value)}
+          className="border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-pink-200" />
+        <input type="text" value={label} onChange={e => setLabel(e.target.value)} placeholder='e.g. "Campaign X launched"'
+          onKeyDown={e => e.key === 'Enter' && add()}
+          className="flex-1 min-w-[180px] border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-pink-200" />
+        <button onClick={add} disabled={!date || !label.trim() || busy}
+          className="pink-gradient text-white text-xs font-bold px-4 py-2 rounded-xl disabled:opacity-50">Add event</button>
+      </div>
+      {msg && <p className="text-[11px] font-semibold text-slate-500 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 mt-3">{msg}</p>}
+      {annotations.length > 0 && (
+        <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-slate-100">
+          {annotations.map(a => (
+            <span key={a.id} className="text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-100 rounded-full px-2.5 py-1">
+              {a.date} · {a.label}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function DashboardStats({ 
   shots, 
   activeProfile, 
   activeTab,
+  annotations = [],
   profileManager
 }: { 
   shots: Shot[]; 
   activeProfile: Profile | null; 
   activeTab: 'dashboard' | 'analysis' | 'history';
+  annotations?: { id: number; date: string; label: string; color?: string | null }[];
   profileManager?: React.ReactNode;
 }) {
   
@@ -659,6 +742,67 @@ export function DashboardStats({
       return { name: label, ...stackBase[d] };
     });
 
+    // ---- Audience growth (followers) within range ----
+    const followerHist = (activeProfile?.followersHistory || [])
+      .filter(f => f && f.date && f.followers !== null)
+      .sort((a, b) => (a.date < b.date ? -1 : 1));
+    const fhInRange = followerHist.filter(f => f.date >= startStr && f.date <= endStr);
+    const fhBaseline = followerHist.filter(f => f.date < startStr).pop() || null;
+    const followersNow = activeProfile?.followers ?? (followerHist.length ? followerHist[followerHist.length - 1].followers : null);
+    const followerStartVal = (fhBaseline || fhInRange[0] || null)?.followers ?? null;
+    const followerEndVal = (fhInRange[fhInRange.length - 1] || null)?.followers ?? null;
+    const followersGained = followerStartVal !== null && followerEndVal !== null ? Math.max(0, followerEndVal - followerStartVal) : null;
+    const viewsPerNewFollower = followersGained && followersGained > 0 ? Math.round(gainedInRange.views / followersGained) : null;
+    const followerChartData = fhInRange.map(f => {
+      let label = f.date;
+      try { label = format(parseISO(f.date), 'MMM dd'); } catch { /* keep */ }
+      return { name: label, Followers: f.followers };
+    });
+
+    // ---- Publishing Playbook: project/tag × weekday uplift ----
+    const weekdayFullNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    type Rec = { entity: string; kind: 'project' | 'tag'; day: string; comboAvg: number; entityAvg: number; uplift: number; count: number };
+    const recs: Rec[] = [];
+    const buildRecs = (kind: 'project' | 'tag', groups: Record<string, Shot[]>) => {
+      Object.entries(groups).forEach(([entity, list]) => {
+        if (list.length < 4) return; // need enough shots for a meaningful split
+        const entityAvg = list.reduce((a, sh) => a + (sh.views || 0), 0) / list.length;
+        if (entityAvg <= 0) return;
+        const byDay: Record<string, Shot[]> = {};
+        list.forEach(sh => {
+          if (!sh.posted) return;
+          const d = new Date(sh.posted);
+          if (isNaN(d.getTime())) return;
+          const day = weekdayFullNames[(d.getDay() + 6) % 7];
+          (byDay[day] = byDay[day] || []).push(sh);
+        });
+        Object.entries(byDay).forEach(([day, dayShots]) => {
+          if (dayShots.length < 2) return;
+          const comboAvg = dayShots.reduce((a, sh) => a + (sh.views || 0), 0) / dayShots.length;
+          const uplift = (comboAvg / entityAvg - 1) * 100;
+          if (uplift >= 15) recs.push({ entity, kind, day, comboAvg: Math.round(comboAvg), entityAvg: Math.round(entityAvg), uplift, count: dayShots.length });
+        });
+      });
+    };
+    const projGroups: Record<string, Shot[]> = {};
+    validShots.forEach(sh => { const pr = projectOf.get(sh.url) || 'Other'; (projGroups[pr] = projGroups[pr] || []).push(sh); });
+    buildRecs('project', projGroups);
+    const tagGroups: Record<string, Shot[]> = {};
+    validShots.forEach(sh => (sh.tags || []).forEach((t: any) => { const k = String(t).toLowerCase().trim(); if (k) (tagGroups[k] = tagGroups[k] || []).push(sh); }));
+    buildRecs('tag', tagGroups);
+    const playbook = recs.sort((a, b) => b.uplift - a.uplift).slice(0, 5);
+
+    // ---- Annotation label mapping for day-granularity charts ----
+    const annotationMarks = effGranularity === 'day'
+      ? annotations
+          .filter(a => a.date >= startStr && a.date <= endStr)
+          .map(a => {
+            let label = a.date;
+            try { label = format(parseISO(a.date), 'MMM dd'); } catch { /* keep */ }
+            return { ...a, x: label };
+          })
+      : [];
+
     // ---- Tag performance (marketing insight) ----
     const tagAgg: Record<string, { views: number; likes: number; count: number }> = {};
     validShots.forEach(shot => {
@@ -983,6 +1127,93 @@ export function DashboardStats({
           </div>
         </div>
 
+        {/* ===== Audience Growth (followers) ===== */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <div className="mb-4 flex justify-between items-end">
+              <div>
+                <h4 className="font-bold text-slate-800 text-sm">Audience Growth</h4>
+                <p className="text-[11px] text-slate-500">Followers over the selected range — logged once per daily sync</p>
+              </div>
+              <div className="text-[10px] font-bold text-sky-600 bg-sky-50 px-2 py-1 rounded-md border border-sky-100">Audience</div>
+            </div>
+            {followerChartData.length < 2 ? (
+              <div className="h-[200px] flex items-center justify-center text-center text-xs text-slate-400 font-medium px-6">
+                {followerHist.length === 0
+                  ? 'Follower tracking starts with the next sync — the scraper now records follower counts daily.'
+                  : 'The follower trend line appears once 2+ days are logged in this range.'}
+              </div>
+            ) : (
+              <div className="h-[200px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={followerChartData} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="followerGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#0EA5E9" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#0EA5E9" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#94a3b8' }} />
+                    <YAxis domain={['auto', 'auto']} axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#94a3b8' }} width={45} />
+                    <Tooltip contentStyle={{ borderRadius: '12px', border: '1px solid #f1f5f9', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', background: '#fff', fontSize: '12px' }} />
+                    <Area type="monotone" dataKey="Followers" stroke="#0EA5E9" strokeWidth={2.5} dot={{ r: 3, fill: '#0EA5E9' }} fill="url(#followerGrad)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Followers</p>
+              <p className="text-3xl font-black text-slate-800 font-mono mt-1">{followersNow !== null ? followersNow.toLocaleString() : '—'}</p>
+              <p className={`text-[11px] font-bold mt-1 ${followersGained !== null && followersGained > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                {followersGained !== null ? `+${followersGained.toLocaleString()} in ${rangeWindowLabel}` : 'delta appears after 2+ logged days'}
+              </p>
+            </div>
+            <div className="pt-4 border-t border-slate-100">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Views per new follower</p>
+              <p className="text-2xl font-black text-slate-800 font-mono mt-1">{viewsPerNewFollower !== null ? viewsPerNewFollower.toLocaleString() : '—'}</p>
+              <p className="text-[10px] text-slate-400 font-medium mt-1 leading-relaxed">
+                How many views it takes to convert one new follower in this range — lower is better; a rising number means reach is outpacing conversion.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ===== Publishing Playbook ===== */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <div className="mb-4 flex justify-between items-end">
+            <div>
+              <h4 className="font-bold text-slate-800 text-sm">Publishing Playbook</h4>
+              <p className="text-[11px] text-slate-500">Project/tag × weekday combinations that beat their own average — data-backed posting advice</p>
+            </div>
+            <div className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded-md border border-amber-100">Social Team</div>
+          </div>
+          {playbook.length === 0 ? (
+            <p className="text-xs text-slate-400 font-medium py-6 text-center">
+              No strong pattern yet — recommendations appear once a project or tag has 4+ shots with 2+ published on the same weekday.
+            </p>
+          ) : (
+            <div className="space-y-2.5">
+              {playbook.map((r, idx) => (
+                <div key={`${r.kind}-${r.entity}-${r.day}`} className="flex items-start gap-3 bg-slate-50/60 border border-slate-100 rounded-xl px-4 py-3">
+                  <span className="text-[11px] font-black font-mono text-amber-500 mt-0.5">{idx + 1}</span>
+                  <p className="text-xs text-slate-600 font-medium leading-relaxed flex-1">
+                    <span className={`inline-block text-[10px] font-black px-1.5 py-0.5 rounded mr-1.5 ${r.kind === 'project' ? 'bg-pink-50 text-pink-600' : 'bg-violet-50 text-violet-600'}`}>{r.kind}</span>
+                    <strong className="text-slate-800">{r.entity}</strong> shots published on <strong className="text-slate-800">{r.day}s</strong> average{' '}
+                    <strong className="text-slate-800 font-mono">{r.comboAvg.toLocaleString()}</strong> views —{' '}
+                    <span className="text-emerald-600 font-black">{Math.round(r.uplift)}% above</span> that {r.kind}&rsquo;s norm ({r.count} shots).
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ===== Events / Annotations manager ===== */}
+        <EventsCard annotations={annotations} annotationMarks={annotationMarks} />
+
         {/* ===== Daily Activity Heatmap ===== */}
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <div className="mb-4 flex justify-between items-end">
@@ -1082,7 +1313,7 @@ export function DashboardStats({
 
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col">
             <div className="mb-2">
-              <h4 className="font-bold text-slate-800 text-sm">Engagement Mix</h4>
+              <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2">Engagement Mix <ShareButton chartId="mix" /></h4>
               <p className="text-[11px] text-slate-500">How the audience interacts across the portfolio</p>
             </div>
             <div className="flex-1 min-h-[220px] relative">
@@ -1368,7 +1599,7 @@ export function DashboardStats({
            {/* Main Growth Timeline */}
            <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
              <div className="mb-6">
-               <h4 className="font-bold text-slate-800 text-sm">Integrated Growth Trend</h4>
+               <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2">Integrated Growth Trend <ShareButton chartId="growth" /></h4>
                <p className="text-[11px] text-slate-500">Views and interactions across the selected range ({rangeWindowLabel})</p>
              </div>
              <div className="h-[300px] w-full">
@@ -1383,6 +1614,16 @@ export function DashboardStats({
                      labelClassName="font-bold text-slate-800"
                    />
                    <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                   {annotationMarks.map(a => (
+                     <ReferenceLine
+                       key={a.id}
+                       yAxisId="left"
+                       x={a.x}
+                       stroke={a.color || '#F59E0B'}
+                       strokeDasharray="4 3"
+                       label={{ value: a.label, position: 'insideTopLeft', fontSize: 9, fill: a.color || '#B45309', fontWeight: 700, angle: 0 }}
+                     />
+                   ))}
                    <Line yAxisId="left" type="monotone" dataKey="Views" name="Views" stroke="#3B82F6" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
                    <Line yAxisId="right" type="monotone" dataKey="Likes" name="Likes" stroke="#EA4C89" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
                  </LineChart>

@@ -5,6 +5,9 @@ export interface Profile {
   lastScrapedAt?: string | null;
   createdAt?: string | null;
   startedAt?: string | null;
+  followers?: number | null;
+  following?: number | null;
+  followersHistory?: { date: string; timestamp: number; followers: number | null; following: number | null }[];
   error?: string | null;
   progressMessage?: string | null;
   scrapedCount?: number;

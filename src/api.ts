@@ -60,6 +60,29 @@ export async function apiFetchLogs(profileId: string): Promise<any[]> {
   return getJson(`/api/profiles/${profileId}/logs`);
 }
 
+export interface Annotation { id: number; date: string; label: string; color?: string | null }
+
+export async function apiFetchAnnotations(): Promise<Annotation[]> {
+  if (IS_STATIC) {
+    try {
+      const data = await getJson(`${BASE}data/annotations.json`);
+      return Array.isArray(data) ? data : [];
+    } catch { return []; }
+  }
+  try { return await getJson('/api/annotations'); } catch { return []; }
+}
+
+export async function apiAddAnnotation(date: string, label: string): Promise<void> {
+  if (IS_STATIC) {
+    throw new Error('static');
+  }
+  const res = await fetch('/api/annotations', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ date, label }),
+  });
+  if (!res.ok) throw new Error(`Server returned ${res.status}`);
+}
+
 export async function apiTriggerScrape(url: string): Promise<void> {
   if (IS_STATIC) {
     throw new Error(

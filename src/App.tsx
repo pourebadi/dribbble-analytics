@@ -9,8 +9,10 @@ import { DashboardStats } from './components/DashboardStats.tsx';
 import { Shot, Profile } from './types.ts';
 import { apiFetchProfiles, apiFetchShots, IS_STATIC, GITHUB_REPO } from './api.ts';
 import { LoginGate } from './components/LoginGate.tsx';
+import { ShareView } from './components/ShareView.tsx';
+import { apiFetchAnnotations, Annotation } from './api.ts';
 import { isAuthed, logout, AUTH_USER } from './auth.ts';
-import { LogOut, Settings, ExternalLink, Timer } from 'lucide-react';
+import { LogOut, Settings, ExternalLink, Timer, Menu, X, Moon, Sun } from 'lucide-react';
 
 /**
  * Countdown to the next automatic scrape.
@@ -130,6 +132,22 @@ export default function App() {
 
   const [authed, setAuthedState] = useState(() => isAuthed());
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const [dark, setDark] = useState(() => { try { return localStorage.getItem('heli_dark') === '1'; } catch { return false; } });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark-invert', dark);
+    try { localStorage.setItem('heli_dark', dark ? '1' : '0'); } catch { /* ignore */ }
+  }, [dark]);
+
+  useEffect(() => { apiFetchAnnotations().then(setAnnotations).catch(() => {}); }, []);
+
+  // Public read-only share route: #/share/<chartId> (no login required)
+  const shareMatch = window.location.hash.match(/^#\/share\/([a-z]+)/);
+  if (shareMatch) {
+    return <ShareView chartId={shareMatch[1]} />;
+  }
 
   if (!authed) {
     return <LoginGate onSuccess={() => setAuthedState(true)} />;
@@ -137,7 +155,8 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-full bg-[#F8FAFC] overflow-hidden font-sans">
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
+      {sidebarOpen && <div className="fixed inset-0 bg-slate-900/40 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0 transform transition-transform duration-200 lg:static lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-6 flex items-center space-x-3">
           <div className="w-8 h-8 pink-gradient rounded-lg flex items-center justify-center shadow-sm">
             <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -149,7 +168,7 @@ export default function App() {
         
         <nav className="flex-1 px-3 space-y-1">
           <button 
-            onClick={() => setActiveTab('dashboard')}
+            onClick={() => { setActiveTab('dashboard'); setSidebarOpen(false); }}
             className={`w-full px-4 py-3 flex items-center space-x-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all border ${
               activeTab === 'dashboard' 
                 ? 'bg-pink-50/75 text-pink-600 border-pink-100/50 shadow-sm' 
@@ -161,7 +180,7 @@ export default function App() {
           </button>
 
           <button 
-            onClick={() => setActiveTab('history')}
+            onClick={() => { setActiveTab('history'); setSidebarOpen(false); }}
             className={`w-full px-4 py-3 flex items-center space-x-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all border ${
               activeTab === 'history' 
                 ? 'bg-pink-50/75 text-pink-600 border-pink-100/50 shadow-sm' 
@@ -173,7 +192,7 @@ export default function App() {
           </button>
 
           <button 
-            onClick={() => setActiveTab('analysis')}
+            onClick={() => { setActiveTab('analysis'); setSidebarOpen(false); }}
             className={`w-full px-4 py-3 flex items-center space-x-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all border ${
               activeTab === 'analysis' 
                 ? 'bg-pink-50/75 text-pink-600 border-pink-100/50 shadow-sm' 
@@ -206,6 +225,12 @@ export default function App() {
                       <Settings className="w-3.5 h-3.5 text-slate-400" /> Repository & workflows
                     </a>
                   )}
+                  <button
+                    onClick={() => setDark(!dark)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors">
+                    {dark ? <Sun className="w-3.5 h-3.5 text-slate-400" /> : <Moon className="w-3.5 h-3.5 text-slate-400" />}
+                    {dark ? 'Light mode' : 'Dark mode'}
+                  </button>
                   <button
                     onClick={() => { logout(); setAuthedState(false); }}
                     className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-red-600 hover:bg-red-50 transition-colors">
@@ -242,9 +267,14 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col p-8 overflow-y-auto">
+      <main className="flex-1 flex flex-col p-4 sm:p-6 lg:p-8 overflow-y-auto">
         <header className="flex justify-between items-center mb-8 border-b border-slate-100 pb-4">
           <div>
+            <div className="flex items-center gap-3">
+              <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex-shrink-0">
+                <Menu className="w-4 h-4" />
+              </button>
+              <div className="min-w-0">
             <h1 className="text-2xl font-bold text-slate-800 tracking-tight">
               {activeTab === 'dashboard' ? 'Heli Studio Portfolio' : activeTab === 'history' ? 'Historical Ledger' : 'Growth Analysis & Management Dashboard'}
             </h1>
@@ -255,6 +285,8 @@ export default function App() {
                 ? 'Historical daily record aggregates and account activity tracking'
                 : 'Advanced trend lines, tracking for management and social team overview'}
             </p>
+              </div>
+            </div>
           </div>
           <div className="flex items-center space-x-4">
             <NextSyncCountdown />
@@ -282,6 +314,7 @@ export default function App() {
           shots={shots} 
           activeProfile={profile} 
           activeTab={activeTab} 
+          annotations={annotations}
           profileManager={
             <ProfileManager 
               onProfileSelect={setActiveProfileUrl} 

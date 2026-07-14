@@ -33,6 +33,16 @@ export interface ShotStats {
   scrapedAt: Date;
 }
 
+export interface ProfileStats {
+  followers: number | null;
+  following: number | null;
+}
+
+export interface ScrapeResult {
+  shots: ShotStats[];
+  profile: ProfileStats;
+}
+
 export type LogLevel = 'info' | 'success' | 'warn' | 'error';
 export type OnLog = (msg: string, level: LogLevel, details?: any) => void | Promise<void>;
 
@@ -55,6 +65,18 @@ const SETTINGS = {
 // ---------------------------------------------------------------------------
 // Parsing helpers — port of parser.py
 // ---------------------------------------------------------------------------
+/** Parse compact counts like "1.2k", "3,400", "1.1m" (approximate for k/m). */
+export function parseCompactNumber(value: string): number | null {
+  const text = value.trim().toLowerCase().replace(/,/g, '');
+  const m = text.match(/^([\d.]+)\s*([km])?/);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  if (Number.isNaN(n)) return null;
+  if (m[2] === 'k') return Math.round(n * 1000);
+  if (m[2] === 'm') return Math.round(n * 1000000);
+  return Math.round(n);
+}
+
 export function parseNumber(value: string): number | null {
   const text = value.trim().replace(/,/g, '');
   if (text === '') return null;
@@ -134,6 +156,26 @@ async function dismissCookieBanner(page: Page): Promise<void> {
 
 function isTimeoutError(err: any): boolean {
   return err && (err.name === 'TimeoutError' || /Timeout \d+ms exceeded/i.test(String(err.message)));
+}
+
+async function collectProfileStats(page: Page, onLog?: OnLog): Promise<ProfileStats> {
+  const stats: ProfileStats = { followers: null, following: null };
+  try {
+    const followersText = await page.locator("a[href$='/followers']").first().innerText({ timeout: 4000 });
+    stats.followers = parseCompactNumber(followersText);
+  } catch { /* not found */ }
+  try {
+    const followingText = await page.locator("a[href$='/following']").first().innerText({ timeout: 2000 });
+    stats.following = parseCompactNumber(followingText);
+  } catch { /* not found */ }
+  if (onLog) {
+    await onLog(
+      `Profile stats: followers=${stats.followers ?? 'n/a'} following=${stats.following ?? 'n/a'}`,
+      stats.followers !== null ? 'info' : 'warn',
+      { profileStats: stats }
+    );
+  }
+  return stats;
 }
 
 async function collectShotUrls(
@@ -341,7 +383,7 @@ export async function scrapeDribbbleProfile(
   onProgress?: (msg: string) => void,
   _existingShots?: any[], // kept for signature compatibility; the modal gives exact values so no cache-merging is needed
   onLog?: OnLog
-): Promise<ShotStats[]> {
+): Promise<ScrapeResult> {
   const log: OnLog = async (msg, level, details) => {
     if (onLog) {
       await onLog(msg, level, details);
@@ -369,6 +411,7 @@ export async function scrapeDribbbleProfile(
     // ---- Phase A: discover shot URLs from the profile page ----
     await log(`Collecting shots from: ${profileUrl}`, 'info');
     const urls = await collectShotUrls(page, profileUrl, maxShots, log);
+    const profileStats = await collectProfileStats(page, log);
     await log(`Found ${urls.length} shot URLs`, 'info', {
       progress: { scrapedCount: 0, totalCount: urls.length },
     });
@@ -435,7 +478,7 @@ export async function scrapeDribbbleProfile(
       { total: results.length, ok: okCount, failed: results.length - okCount }
     );
 
-    return results;
+    return { shots: results, profile: profileStats };
   } finally {
     if (context) {
       try {

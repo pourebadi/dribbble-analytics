@@ -71,6 +71,26 @@ async function startServer() {
     }
   });
 
+  app.get('/api/annotations', (req, res) => {
+    try { res.json(dbLayer.getAnnotations()); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.post('/api/annotations', (req, res) => {
+    const { date, label, color } = req.body || {};
+    if (!date || !label) return res.status(400).json({ error: 'date and label are required' });
+    try {
+      const a = dbLayer.addAnnotation(String(date), String(label), color ? String(color) : null);
+      dbLayer.exportJsonSnapshot();
+      res.json(a);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.delete('/api/annotations/:id', (req, res) => {
+    try {
+      dbLayer.deleteAnnotation(parseInt(req.params.id, 10));
+      dbLayer.exportJsonSnapshot();
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   app.post('/api/scrape', (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: 'URL is required' });

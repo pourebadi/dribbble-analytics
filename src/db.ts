@@ -81,6 +81,23 @@ CREATE TABLE IF NOT EXISTS shot_history (
 );
 CREATE INDEX IF NOT EXISTS idx_history_shot ON shot_history(shot_url);
 
+CREATE TABLE IF NOT EXISTS profile_history (
+  profile_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  timestamp INTEGER NOT NULL,
+  followers INTEGER,
+  following INTEGER,
+  PRIMARY KEY (profile_id, date)
+);
+
+CREATE TABLE IF NOT EXISTS annotations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  date TEXT NOT NULL,
+  label TEXT NOT NULL,
+  color TEXT,
+  created_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS sync_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   profile_id TEXT NOT NULL,
@@ -95,6 +112,11 @@ CREATE INDEX IF NOT EXISTS idx_logs_profile ON sync_logs(profile_id);
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+// Lightweight migrations for existing databases
+for (const col of ['followers INTEGER', 'following INTEGER']) {
+  try { db.exec(`ALTER TABLE profiles ADD COLUMN ${col}`); } catch { /* already exists */ }
+}
+
 export function profileIdFromUrl(url: string): string {
   return Buffer.from(url).toString('base64url');
 }
@@ -117,6 +139,11 @@ function rowToProfile(row: any) {
     scrapedCount: row.scraped_count,
     totalCount: row.total_count,
     lastRunStats: row.last_run_stats ? JSON.parse(row.last_run_stats) : null,
+    followers: row.followers ?? null,
+    following: row.following ?? null,
+    followersHistory: db
+      .prepare('SELECT date, timestamp, followers, following FROM profile_history WHERE profile_id = ? ORDER BY date')
+      .all(row.id),
   };
 }
 
@@ -171,6 +198,8 @@ export function updateProfile(url: string, fields: Record<string, any>) {
     scrapedCount: 'scraped_count',
     totalCount: 'total_count',
     lastRunStats: 'last_run_stats',
+    followers: 'followers',
+    following: 'following',
   };
   const sets: string[] = [];
   const values: any[] = [];
@@ -336,6 +365,35 @@ export const applyScrapeResults = db.transaction((profileUrl: string, shots: Sho
   }
 });
 
+/** Upsert today's follower snapshot (same-day re-runs replace the day's row). */
+export function recordProfileHistory(profileUrl: string, followers: number | null, following: number | null) {
+  if (followers === null && following === null) return;
+  const id = profileIdFromUrl(profileUrl);
+  db.prepare(`
+    INSERT INTO profile_history (profile_id, date, timestamp, followers, following)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(profile_id, date) DO UPDATE SET
+      timestamp = excluded.timestamp,
+      followers = COALESCE(excluded.followers, profile_history.followers),
+      following = COALESCE(excluded.following, profile_history.following)
+  `).run(id, historyDayString(), Date.now(), followers, following);
+}
+
+// ---------------------------------------------------------------------------
+// Annotations (chart event markers, e.g. "Campaign X launched")
+// ---------------------------------------------------------------------------
+export function getAnnotations() {
+  return db.prepare('SELECT id, date, label, color FROM annotations ORDER BY date').all();
+}
+export function addAnnotation(date: string, label: string, color: string | null) {
+  const r = db.prepare('INSERT INTO annotations (date, label, color, created_at) VALUES (?, ?, ?, ?)')
+    .run(date, label, color, new Date().toISOString());
+  return { id: r.lastInsertRowid, date, label, color };
+}
+export function deleteAnnotation(id: number) {
+  db.prepare('DELETE FROM annotations WHERE id = ?').run(id);
+}
+
 // ---------------------------------------------------------------------------
 // JSON export — a human/tool friendly snapshot next to the DB, refreshed after
 // every scrape (handy for the GitHub repo history and quick inspection).
@@ -355,6 +413,7 @@ export function exportJsonSnapshot() {
     if (p) logsByProfile[p.id] = getLogs(p.id);
   }
   fs.writeFileSync(path.join(DATA_DIR, 'sync_logs.json'), JSON.stringify(logsByProfile, null, 2), 'utf-8');
+  fs.writeFileSync(path.join(DATA_DIR, 'annotations.json'), JSON.stringify(getAnnotations(), null, 2), 'utf-8');
 }
 
 /**
