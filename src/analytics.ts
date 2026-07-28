@@ -311,15 +311,6 @@ export function buildGainMatrix(
 // ---------------------------------------------------------------------------
 // Promotion helpers (paid boosts + free editorial features)
 // ---------------------------------------------------------------------------
-/** Which promotion kinds an analysis should strip out. */
-export type ExclusionMode = 'none' | 'paid' | 'all';
-
-export function kindsToExclude(mode: ExclusionMode): PromoKind[] {
-  if (mode === 'paid') return ['boost'];
-  if (mode === 'all') return ['boost', 'featured'];
-  return [];
-}
-
 export function filterByKind(entries: BoostEntry[], kinds: PromoKind[]): BoostEntry[] {
   if (kinds.length === 0) return [];
   return entries.filter((e) => kinds.includes(e.kind));

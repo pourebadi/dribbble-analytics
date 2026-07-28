@@ -75,8 +75,6 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
   const [draft, setDraft] = useState({ ...emptyDraft });
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null);
-  const [needToken, setNeedToken] = useState(false);
-  const [tokenInput, setTokenInput] = useState('');
   const [listFilter, setListFilter] = useState<'all' | PromoKind>('all');
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
@@ -116,6 +114,14 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
   }, [validShots]);
 
   const gainedFor = (e: BoostEntry) => A.gainedInWindow(matrix, e, 'views');
+
+  /**
+   * How many days of a window fall on dates whose day-over-day change was
+   * suppressed for data quality. Those days contribute nothing, so the measured
+   * impact is a floor rather than the full picture — worth saying out loud.
+   */
+  const blindDays = (e: BoostEntry) =>
+    dates.filter((d, i) => matrix.excluded[i] && A.dateInBoostWindow(d, e)).length;
   const interactionsFor = (e: BoostEntry) =>
     A.gainedInWindow(matrix, e, 'likes') +
     A.gainedInWindow(matrix, e, 'saves') +
@@ -186,11 +192,13 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
     const res = await save(tokenOverride);
     setSaving(false);
     if (res.needToken) {
-      setNeedToken(true);
-      setStatus({ ok: false, message: res.message });
+      setStatus({
+        ok: false,
+        message:
+          'Connect your GitHub token using the box at the top of this page, then press Save again.',
+      });
       return;
     }
-    setNeedToken(false);
     setStatus({ ok: res.ok, message: res.message });
   };
 
@@ -675,6 +683,14 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
                       </td>
                       <td className="px-3 py-3 text-right text-xs font-mono font-bold text-blue-600">
                         +{views.toLocaleString()}
+                        {blindDays(e) > 0 && (
+                          <span
+                            className="block text-[9px] font-bold text-amber-600"
+                            title={`${blindDays(e)} day(s) of this window fall on start-up days whose change was excluded, so the real figure is higher.`}
+                          >
+                            at least
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-3 text-right text-xs font-mono font-bold text-emerald-600">
                         +{inter.toLocaleString()}
@@ -710,36 +726,9 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
         )}
 
         {/* token prompt + status */}
-        {(needToken || status) && (
+        {status && (
           <div className="p-5 border-t border-slate-100 space-y-3">
-            {needToken && (
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2.5">
-                <p className="text-xs font-bold text-slate-700">Paste a GitHub token to commit the registry</p>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  This dashboard is served statically, so saving commits <code>data/boosts.json</code> through the
-                  GitHub API. Create a fine-grained token with{' '}
-                  <span className="font-semibold">Contents: Read and write</span> on this repository. It is stored
-                  only in this browser.
-                </p>
-                <div className="flex gap-2">
-                  <input
-                    type="password"
-                    value={tokenInput}
-                    onChange={(e) => setTokenInput(e.target.value)}
-                    placeholder="github_pat_…"
-                    className={`${INPUT} font-mono`}
-                  />
-                  <button
-                    onClick={() => doSave(tokenInput.trim())}
-                    disabled={!tokenInput.trim() || saving}
-                    className="pink-gradient text-white text-xs font-bold px-4 py-2 rounded-lg disabled:opacity-50"
-                  >
-                    Save
-                  </button>
-                </div>
-              </div>
-            )}
-            {status && (
+                        {status && (
               <p
                 className={`text-xs font-semibold rounded-xl px-3.5 py-2.5 border flex items-start gap-2 ${
                   status.ok

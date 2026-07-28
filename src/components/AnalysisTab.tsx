@@ -58,6 +58,7 @@ import {
   Folder,
   FolderPlus,
   SlidersHorizontal,
+  ChevronDown,
   CalendarDays,
   ShieldCheck,
   Activity,
@@ -68,7 +69,7 @@ import {
 import { Shot, Profile } from '../types.ts';
 import { DateRangePicker } from './DateRangePicker.tsx';
 import { InfoTip } from './InfoTip.tsx';
-import { BoostEntry } from '../boosts.ts';
+import { BoostEntry, PromoKind } from '../boosts.ts';
 import { collectionOfShot } from '../collections.ts';
 import { useBoosts, useCollections } from '../registryStore.ts';
 import * as A from '../analytics.ts';
@@ -77,6 +78,7 @@ import { assessDataQuality, QUALITY_LABEL } from '../dataQuality.ts';
 import { C, SERIES, compact, tooltipStyle, tooltipLabelStyle, gridProps } from '../chartTheme.ts';
 import { BTN_PRIMARY } from '../formStyles.ts';
 import { useLegendToggle, LegendResetHint } from '../useLegendToggle.tsx';
+import { buildInsights } from '../insights.ts';
 
 // ---------------------------------------------------------------------------
 // Small shared UI atoms
@@ -152,7 +154,12 @@ export function AnalysisTab({
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [collection, setCollection] = useState<string>('all'); // 'all' | 'proj:NAME' | 'kw:WORD'
-  const [exclusion, setExclusion] = useState<A.ExclusionMode>('none');
+  /**
+   * Nothing is filtered by default. `excludedKinds` and `excludedIds` are what
+   * the reader has explicitly asked to remove, so the charts always start by
+   * showing the real numbers.
+   */
+  const [excludedKinds, setExcludedKinds] = useState<PromoKind[]>([]);
   /** ids of individual promotions the user chose to exclude (overrides the mode) */
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const [promoPanelOpen, setPromoPanelOpen] = useState(false);
@@ -169,6 +176,8 @@ export function AnalysisTab({
   const [bestDaysAgg, setBestDaysAgg] = useState<'avg' | 'total'>('avg');
   const [bestDaysMetric, setBestDaysMetric] = useState<'views' | 'engagement'>('views');
   const [heatMetric, setHeatMetric] = useState<MetricKey>('views');
+  const [heatScope, setHeatScope] = useState<'range' | 'context'>('range');
+  const [showAllInsights, setShowAllInsights] = useState(false);
   const [topShotsMode, setTopShotsMode] = useState<'growth' | 'total'>('growth');
   const [paretoOrganic, setParetoOrganic] = useState(false);
   const [attrMetric, setAttrMetric] = useState<MetricKey>('views');
@@ -264,7 +273,6 @@ export function AnalysisTab({
   const featuredUrls = useMemo(() => A.boostedUrlSet(boosts, ['featured']), [boosts]);
   const hasPaid = paidUrls.size > 0;
   const hasFeatured = featuredUrls.size > 0;
-  const excludeBoosted = exclusion !== 'none' || excludedIds.size > 0;
 
   /**
    * Entries the analysis strips out. The category switch is a shortcut; any
@@ -272,13 +280,29 @@ export function AnalysisTab({
    * campaign can be isolated without excluding everything of its kind.
    */
   const excludedEntries = useMemo(() => {
-    const byMode = A.filterByKind(boosts, A.kindsToExclude(exclusion));
-    const ids = new Set(byMode.map((e) => e.id));
+    const byKind = boosts.filter((e) => excludedKinds.includes(e.kind));
+    const ids = new Set(byKind.map((e) => e.id));
     const extra = boosts.filter((e) => excludedIds.has(e.id) && !ids.has(e.id));
-    return [...byMode, ...extra];
-  }, [boosts, exclusion, excludedIds]);
+    return [...byKind, ...extra];
+  }, [boosts, excludedKinds, excludedIds]);
   /** shot URLs removed entirely from rankings/concentration */
   const excludedUrls = useMemo(() => A.boostedUrlSet(excludedEntries), [excludedEntries]);
+
+  const excludeBoosted = excludedEntries.length > 0;
+  const filterActive = excludedKinds.length > 0 || excludedIds.size > 0;
+
+  /** short label for the filter button, so its state is readable at a glance */
+  const filterSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (excludedKinds.includes('boost')) parts.push('paid');
+    if (excludedKinds.includes('featured')) parts.push('featured');
+    const singles = [...excludedIds].filter(
+      (id) => !excludedKinds.includes(boosts.find((b) => b.id === id)?.kind as PromoKind)
+    ).length;
+    if (singles > 0) parts.push(`${singles} campaign${singles > 1 ? 's' : ''}`);
+    return parts.length ? `Without ${parts.join(' + ')}` : 'Showing all traffic';
+  }, [excludedKinds, excludedIds, boosts]);
+
 
   const boostGain = useMemo(() => {
     const rec = {} as Record<MetricKey, number[]>;
@@ -418,7 +442,7 @@ export function AnalysisTab({
       if (a?.first && b?.last) windows.push({ x1: a.first, x2: b.last, kind });
     };
     boosts.forEach((b) => {
-      // a window that the current exclusion mode already removed isn't shaded
+      // a window the reader has filtered out is not shaded
       if (excludedUrls.size > 0 && excludedEntries.some((e) => e.id === b.id)) return;
       push(b.start, b.end, b.kind);
     });
@@ -512,13 +536,23 @@ export function AnalysisTab({
     }));
   }, [filteredShots]);
 
-  // ----- Heatmap (last 16 weeks over the whole log) -----
+  /**
+   * Heatmap.
+   *
+   * It used to draw a fixed sixteen weeks regardless of the range picker, so
+   * narrowing to a week changed nothing on screen and the reader had no way to
+   * see which days their selection actually covered. It now follows the range
+   * by default — the grid spans exactly the weeks the range touches, days
+   * outside it are greyed, and the cells grow when the window is short so a
+   * seven-day view is readable rather than five tiny squares. "Wider context"
+   * keeps the old sixteen-week view but outlines the selected range inside it.
+   */
   const heatmap = useMemo(() => {
     const gainByDate: Record<string, number> = {};
     dates.forEach((d, i) => {
       if (i > 0) gainByDate[d] = gainAt(heatMetric, i);
     });
-    const maxGain = Math.max(1, ...Object.values(gainByDate));
+
     const boostDates = new Set<string>();
     const featuredDates = new Set<string>();
     boosts.forEach((b) =>
@@ -535,22 +569,45 @@ export function AnalysisTab({
       })
     );
 
-    const endD = new Date(lastDate + 'T00:00:00Z');
-    const endMonday = new Date(endD);
-    endMonday.setUTCDate(endD.getUTCDate() - ((endD.getUTCDay() + 6) % 7));
-    const weeks: { iso: string; inLog: boolean; gain: number | null; isBaseline: boolean }[][] = [];
+    // Grid bounds: whole weeks covering either the range or the last 16 weeks.
+    const mondayOf = (iso: string) => {
+      const d = new Date(iso + 'T00:00:00Z');
+      d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+      return d;
+    };
+
+    let gridStart: Date;
+    let weekCount: number;
+    if (heatScope === 'range') {
+      gridStart = mondayOf(startStr);
+      const endSunday = mondayOf(endStr);
+      weekCount = Math.max(1, Math.round((endSunday.getTime() - gridStart.getTime()) / (7 * 86400000)) + 1);
+    } else {
+      gridStart = mondayOf(lastDate);
+      gridStart.setUTCDate(gridStart.getUTCDate() - 15 * 7);
+      weekCount = 16;
+    }
+
+    const weeks: {
+      iso: string;
+      inLog: boolean;
+      inRange: boolean;
+      gain: number | null;
+      isBaseline: boolean;
+    }[][] = [];
     const monthLabels: { col: number; label: string }[] = [];
     let prevMonth = -1;
-    for (let w = 15; w >= 0; w--) {
-      const col: { iso: string; inLog: boolean; gain: number | null; isBaseline: boolean }[] = [];
+
+    for (let w = 0; w < weekCount; w++) {
+      const col: typeof weeks[number] = [];
       for (let d = 0; d < 7; d++) {
-        const cur = new Date(endMonday);
-        cur.setUTCDate(endMonday.getUTCDate() - w * 7 + d);
+        const cur = new Date(gridStart);
+        cur.setUTCDate(gridStart.getUTCDate() + w * 7 + d);
         const iso = cur.toISOString().split('T')[0];
-        const inLog = firstDate !== null && iso >= firstDate && iso <= lastDate;
         col.push({
           iso,
-          inLog,
+          inLog: firstDate !== null && iso >= firstDate && iso <= lastDate,
+          inRange: iso >= startStr && iso <= endStr,
           gain: iso in gainByDate ? gainByDate[iso] : null,
           isBaseline: iso === firstDate,
         });
@@ -558,7 +615,7 @@ export function AnalysisTab({
           const m = cur.getUTCMonth();
           if (m !== prevMonth) {
             monthLabels.push({
-              col: 15 - w,
+              col: w,
               label: cur.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' }),
             });
             prevMonth = m;
@@ -567,9 +624,50 @@ export function AnalysisTab({
       }
       weeks.push(col);
     }
-    return { weeks, maxGain, boostDates, featuredDates, suspectedDates, monthLabels };
+
+    // Colour scale is computed from what is actually on screen and in range, so
+    // one huge day outside the window cannot flatten everything inside it.
+    const visibleGains: { iso: string; gain: number }[] = [];
+    weeks.forEach((col) =>
+      col.forEach((c) => {
+        if (c.inRange && c.gain !== null) visibleGains.push({ iso: c.iso, gain: c.gain });
+      })
+    );
+    const maxGain = Math.max(1, ...visibleGains.map((v) => v.gain));
+    const totalInRange = visibleGains.reduce((a, v) => a + v.gain, 0);
+    const activeDays = visibleGains.filter((v) => v.gain > 0).length;
+    const busiest = visibleGains.reduce<{ iso: string; gain: number } | null>(
+      (best, v) => (!best || v.gain > best.gain ? v : best),
+      null
+    );
+    const quietest = visibleGains.reduce<{ iso: string; gain: number } | null>(
+      (worst, v) => (!worst || v.gain < worst.gain ? v : worst),
+      null
+    );
+
+    // Cells grow for short windows so a week is not five tiny squares.
+    const cell = weekCount <= 5 ? 34 : weekCount <= 9 ? 26 : weekCount <= 14 ? 22 : 18;
+
+    return {
+      weeks,
+      weekCount,
+      cell,
+      maxGain,
+      totalInRange,
+      activeDays,
+      loggedDays: visibleGains.length,
+      busiest,
+      quietest,
+      boostDates,
+      featuredDates,
+      suspectedDates,
+      monthLabels,
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dates, matrix, boostGain, excludeBoosted, heatMetric, boosts, suspected, firstDate, lastDate]);
+  }, [
+    dates, matrix, boostGain, excludeBoosted, heatMetric, boosts, suspected,
+    firstDate, lastDate, heatScope, startStr, endStr,
+  ]);
 
   // ----- Portfolio concentration (Pareto / Lorenz) -----
   const pareto = useMemo(() => {
@@ -1058,6 +1156,100 @@ export function AnalysisTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeIdx, matrix, boostGain, excludeBoosted]);
 
+  /**
+   * Derived KPIs — the second row.
+   *
+   * The four counters answer "how much"; these answer "how well" and "how
+   * broadly", which is usually the more useful question. Each is compared
+   * against the same window immediately before, so the delta means the same
+   * thing whatever the account's size.
+   */
+  const derivedKpis = useMemo(() => {
+    const spanDays = A.daysBetween(startStr, endStr) + 1;
+    const prevEnd = A.isoAddDays(startStr, -1);
+    const prevStart = A.isoAddDays(prevEnd, -(spanDays - 1));
+    const prevIdx: number[] = [];
+    dates.forEach((d, i) => {
+      if (i > 0 && !matrix.excluded[i] && d >= prevStart && d <= prevEnd) prevIdx.push(i);
+    });
+    const usable = rangeIdx.filter((i) => i > 0 && !matrix.excluded[i]);
+
+    const sum = (idx: number[], m: MetricKey) => idx.reduce((a, i) => a + gainAt(m, i), 0);
+
+    const v = sum(usable, 'views');
+    const inter = sum(usable, 'likes') + sum(usable, 'saves') + sum(usable, 'comments');
+    const pv = sum(prevIdx, 'views');
+    const pInter = sum(prevIdx, 'likes') + sum(prevIdx, 'saves') + sum(prevIdx, 'comments');
+
+    const rate = v > 0 ? (inter / v) * 100 : 0;
+    const prevRate = pv > 0 ? (pInter / pv) * 100 : 0;
+
+    const pace = usable.length ? v / usable.length : 0;
+    const prevPace = prevIdx.length ? pv / prevIdx.length : 0;
+
+    // How much of the portfolio actually moved, rather than how much it earned.
+    let active = 0;
+    matrix.perShot.forEach((g) => {
+      if (usable.some((i) => g.gain.views[i] > 0)) active += 1;
+    });
+    let prevActive = 0;
+    matrix.perShot.forEach((g) => {
+      if (prevIdx.some((i) => g.gain.views[i] > 0)) prevActive += 1;
+    });
+    const totalShots = matrix.perShot.size || 1;
+
+    // Share of new views produced by the strongest tenth of the portfolio.
+    const per: number[] = [];
+    matrix.perShot.forEach((g) => {
+      const t = usable.reduce((a, i) => a + g.gain.views[i], 0);
+      if (t > 0) per.push(t);
+    });
+    per.sort((a, b) => b - a);
+    const perTotal = per.reduce((a, b) => a + b, 0);
+    const topN = Math.max(1, Math.round(per.length * 0.1));
+    const conc = perTotal > 0 ? (per.slice(0, topN).reduce((a, b) => a + b, 0) / perTotal) * 100 : 0;
+
+    const delta = (now: number, before: number) =>
+      before > 0 ? ((now - before) / before) * 100 : null;
+
+    return {
+      hasPrev: prevIdx.length >= Math.max(3, usable.length / 2),
+      rate,
+      rateDelta: delta(rate, prevRate),
+      pace,
+      paceDelta: delta(pace, prevPace),
+      active,
+      totalShots,
+      activeDelta: delta(active, prevActive),
+      conc,
+      topN,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangeIdx, dates, matrix, boostGain, excludeBoosted, startStr, endStr]);
+
+  // ----- Insights: what the dashboard noticed, before you read a chart -----
+  const insights = useMemo(
+    () =>
+      buildInsights({
+        shots: filteredShots,
+        dates,
+        matrix,
+        rangeIdx,
+        startStr,
+        endStr,
+        rangeLabel,
+        boosts,
+        growthByShot: shotGrowthList.map((x) => ({ shot: x.shot, growth: x.growth })),
+        suspectedCount: suspected.length,
+        collectionsCount: collections.length,
+        unassignedCount,
+      }),
+    [
+      filteredShots, dates, matrix, rangeIdx, startStr, endStr, rangeLabel,
+      boosts, shotGrowthList, suspected, collections, unassignedCount,
+    ]
+  );
+
   // =========================================================================
   // Render
   // =========================================================================
@@ -1134,140 +1326,194 @@ export function AnalysisTab({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* Promotion exclusion: category shortcut + per-campaign switches */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                Traffic <InfoTip k="excludeBoosted" />
-              </span>
-              <Seg>
-                <SegBtn active={exclusion === 'none'} onClick={() => setExclusion('none')}>
-                  All
-                </SegBtn>
-                <SegBtn active={exclusion === 'paid'} onClick={() => setExclusion('paid')}>
-                  No paid
-                </SegBtn>
-                <SegBtn active={exclusion === 'all'} onClick={() => setExclusion('all')}>
-                  Organic
-                </SegBtn>
-              </Seg>
+            {/*
+              One opt-in control instead of three.
 
-              {/* Individual campaigns */}
-              {boosts.length > 0 && (
-                <div className="relative">
-                  <button
-                    onClick={() => setPromoPanelOpen(!promoPanelOpen)}
-                    className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-[11px] font-bold border transition-all ${
-                      excludedIds.size > 0
-                        ? 'bg-pink-50 border-pink-200 text-pink-700'
-                        : 'bg-white border-slate-200 text-slate-500 hover:border-pink-200'
-                    }`}
-                    title="Exclude specific campaigns rather than a whole category"
-                  >
-                    <SlidersHorizontal className="w-3.5 h-3.5" />
-                    {excludedIds.size > 0 ? `${excludedIds.size} excluded` : 'Per campaign'}
-                  </button>
+              The old layout was backwards: it asked which traffic to *exclude*
+              before the reader had any reason to exclude anything, and split
+              that across a Traffic switch, a Per-campaign panel and a
+              Promotions counter. The default is now simply "everything", and
+              filtering is one button the reader reaches for only when they
+              want to ask "what would this look like without the promotion?".
+            */}
+            {boosts.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setPromoPanelOpen(!promoPanelOpen)}
+                  className={`h-9 flex items-center gap-2 px-3 rounded-xl text-[11px] font-bold border transition-all ${
+                    filterActive
+                      ? 'bg-pink-50 border-pink-200 text-pink-700 shadow-sm'
+                      : 'bg-white border-slate-200 text-slate-600 hover:border-pink-200'
+                  }`}
+                  title="Temporarily remove promoted traffic from every chart"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  {filterActive ? filterSummary : 'Showing all traffic'}
+                  <ChevronDown className={`w-3 h-3 transition-transform ${promoPanelOpen ? 'rotate-180' : ''}`} />
+                </button>
 
-                  {promoPanelOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setPromoPanelOpen(false)} />
-                      <div className="absolute z-50 right-0 mt-2 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-200/70 p-3">
-                        <div className="flex items-center justify-between mb-2 px-1">
-                          <p className="text-[11px] font-extrabold text-slate-700">Exclude individual campaigns</p>
-                          {excludedIds.size > 0 && (
-                            <button
-                              onClick={() => setExcludedIds(new Set())}
-                              className="text-[10px] font-bold text-pink-600 hover:underline"
-                            >
-                              Clear
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-slate-400 font-medium px-1 mb-2.5 leading-relaxed">
-                          Tick a campaign to remove only its gains from every chart — useful for isolating one
-                          boost instead of dropping all paid traffic.
+                {promoPanelOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setPromoPanelOpen(false)} />
+                    <div className="absolute z-50 right-0 mt-2 w-[340px] bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-200/70 overflow-hidden">
+                      <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60">
+                        <p className="text-[11px] font-extrabold text-slate-800 flex items-center gap-1.5">
+                          Compare without promotions <InfoTip k="excludeBoosted" />
                         </p>
-                        <div className="max-h-64 overflow-y-auto space-y-1">
-                          {boosts.map((b) => {
-                            const forcedByMode = A.kindsToExclude(exclusion).includes(b.kind);
-                            const checked = forcedByMode || excludedIds.has(b.id);
-                            const shot = shots.find((sh) => sh.url === b.shotUrl);
+                        <p className="text-[10px] text-slate-400 font-medium mt-0.5 leading-snug">
+                          Charts show everything by default. Tick what you want removed to see the organic picture.
+                        </p>
+                      </div>
+
+                      <div className="p-2">
+                        {[
+                          {
+                            key: 'boost' as const,
+                            label: 'Paid boosts',
+                            hint: 'What your budget bought',
+                            n: paidUrls.size,
+                            Icon: Zap,
+                            tone: 'text-pink-500',
+                          },
+                          {
+                            key: 'featured' as const,
+                            label: 'Featured',
+                            hint: 'Free exposure from Dribbble',
+                            n: featuredUrls.size,
+                            Icon: Star,
+                            tone: 'text-indigo-500',
+                          },
+                        ]
+                          .filter((r) => r.n > 0)
+                          .map(({ key, label, hint, n, Icon, tone }) => {
+                            const on = excludedKinds.includes(key);
                             return (
                               <label
-                                key={b.id}
-                                className={`flex items-center gap-2.5 px-2 py-2 rounded-xl transition-colors ${
-                                  forcedByMode ? 'opacity-50' : 'hover:bg-slate-50 cursor-pointer'
-                                }`}
-                                title={
-                                  forcedByMode
-                                    ? `Already excluded by the "${exclusion === 'paid' ? 'No paid' : 'Organic'}" setting`
-                                    : undefined
-                                }
+                                key={key}
+                                className="flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors"
                               >
                                 <input
                                   type="checkbox"
-                                  checked={checked}
-                                  disabled={forcedByMode}
+                                  checked={on}
                                   onChange={() => {
-                                    const next = new Set(excludedIds);
-                                    if (next.has(b.id)) next.delete(b.id);
-                                    else next.add(b.id);
-                                    setExcludedIds(next);
+                                    setExcludedKinds(
+                                      on ? excludedKinds.filter((k) => k !== key) : [...excludedKinds, key]
+                                    );
                                   }}
                                   className="accent-pink-500 w-3.5 h-3.5 flex-shrink-0"
                                 />
-                                {b.kind === 'boost' ? (
-                                  <Zap className="w-3 h-3 text-pink-500 flex-shrink-0" />
-                                ) : (
-                                  <Star className="w-3 h-3 text-indigo-500 flex-shrink-0" />
-                                )}
+                                <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${tone}`} />
                                 <span className="min-w-0 flex-1">
-                                  <span className="block text-[11px] font-bold text-slate-700 truncate leading-tight">
-                                    {shot ? A.shotTitle(shot) : b.shotUrl}
+                                  <span className="block text-[11px] font-bold text-slate-700 leading-tight">
+                                    Remove {label}
                                   </span>
-                                  <span className="block text-[9px] font-mono font-bold text-slate-400">
-                                    {b.start} → {b.end || 'running'}
-                                  </span>
+                                  <span className="block text-[10px] font-medium text-slate-400">{hint}</span>
                                 </span>
+                                <span className="text-[10px] font-mono font-bold text-slate-400">{n}</span>
                               </label>
                             );
                           })}
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
 
-            {/* Boost registry */}
-            <button
-              onClick={() => onOpenPromotions?.()}
-              title="Open the Promotions page to register boosts and features"
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[11px] font-bold border bg-white border-slate-200 text-slate-600 hover:border-pink-200 hover:text-pink-600 transition-all"
-            >
-              <Zap className="w-3.5 h-3.5 text-pink-500" />
-              Promotions
-              <span
-                className="px-1.5 rounded-full text-[10px] font-mono bg-pink-50 text-pink-600 border border-pink-100"
-                title="Paid boosts registered"
+                        {/* individual campaigns, only when there is more than one */}
+                        {boosts.length > 1 && (
+                          <div className="mt-1 pt-2 border-t border-slate-100">
+                            <p className="px-2.5 pb-1.5 text-[9px] font-black text-slate-400 uppercase tracking-wider">
+                              Or pick single campaigns
+                            </p>
+                            <div className="max-h-48 overflow-y-auto">
+                              {boosts.map((b) => {
+                                const forced = excludedKinds.includes(b.kind);
+                                const checked = forced || excludedIds.has(b.id);
+                                const shot = shots.find((sh) => sh.url === b.shotUrl);
+                                return (
+                                  <label
+                                    key={b.id}
+                                    className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl transition-colors ${
+                                      forced ? 'opacity-45' : 'hover:bg-slate-50 cursor-pointer'
+                                    }`}
+                                    title={forced ? 'Already removed by the option above' : undefined}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      disabled={forced}
+                                      onChange={() => {
+                                        const next = new Set(excludedIds);
+                                        if (next.has(b.id)) next.delete(b.id);
+                                        else next.add(b.id);
+                                        setExcludedIds(next);
+                                      }}
+                                      className="accent-pink-500 w-3.5 h-3.5 flex-shrink-0"
+                                    />
+                                    {b.kind === 'boost' ? (
+                                      <Zap className="w-3 h-3 text-pink-500 flex-shrink-0" />
+                                    ) : (
+                                      <Star className="w-3 h-3 text-indigo-500 flex-shrink-0" />
+                                    )}
+                                    <span className="min-w-0 flex-1">
+                                      <span className="block text-[11px] font-bold text-slate-700 truncate leading-tight">
+                                        {shot ? A.shotTitle(shot) : b.shotUrl}
+                                      </span>
+                                      <span className="block text-[9px] font-mono font-bold text-slate-400">
+                                        {b.start} → {b.end || 'running'}
+                                      </span>
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="px-3 py-2.5 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between">
+                        <button
+                          onClick={() => {
+                            setExcludedKinds([]);
+                            setExcludedIds(new Set());
+                          }}
+                          disabled={!filterActive}
+                          className="text-[10px] font-bold text-slate-500 hover:text-pink-600 disabled:opacity-40 transition-colors"
+                        >
+                          Reset to all traffic
+                        </button>
+                        <button
+                          onClick={() => onOpenPromotions?.()}
+                          className="text-[10px] font-bold text-slate-500 hover:text-pink-600 transition-colors flex items-center gap-1"
+                        >
+                          <Zap className="w-3 h-3 text-pink-500" />
+                          Manage promotions
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Nothing registered yet — offer the way in, without a filter nobody can use */}
+            {boostsLoaded && boosts.length === 0 && (
+              <button
+                onClick={() => onOpenPromotions?.()}
+                className="h-9 flex items-center gap-1.5 px-3 rounded-xl text-[11px] font-bold border bg-white border-slate-200 text-slate-500 hover:border-pink-200 hover:text-pink-600 transition-all"
+                title="Record a boosted or featured shot so charts can separate paid, free and earned reach"
               >
-                {paidUrls.size}
-              </span>
-              <span
-                className="px-1.5 rounded-full text-[10px] font-mono bg-indigo-50 text-indigo-600 border border-indigo-100"
-                title="Featured entries registered"
+                <Zap className="w-3.5 h-3.5 text-pink-400" />
+                Add promotions
+              </button>
+            )}
+
+            {/* Unregistered spikes are a prompt to act, not a filter */}
+            {boostsLoaded && suspected.length > 0 && (
+              <button
+                onClick={() => onOpenPromotions?.()}
+                className="h-9 flex items-center gap-1.5 px-3 rounded-xl text-[11px] font-bold border bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100 transition-all"
+                title="Shots that spiked well above their normal rate — tell the dashboard why"
               >
-                {featuredUrls.size}
-              </span>
-              {boostsLoaded && suspected.length > 0 && (
-                <span
-                  className="px-1.5 rounded-full text-[10px] font-mono bg-amber-100 text-amber-700 border border-amber-200"
-                  title={`${suspected.length} unregistered spike(s) detected`}
-                >
-                  +{suspected.length}?
-                </span>
-              )}
-            </button>
+                <AlertTriangle className="w-3.5 h-3.5" />
+                {suspected.length} unexplained spike{suspected.length > 1 ? 's' : ''}
+              </button>
+            )}
           </div>
         </div>
 
@@ -1358,6 +1604,148 @@ export function AnalysisTab({
         </div>
       )}
 
+      {/* ===================== DERIVED KPIs ===================== */}
+      <section className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        {[
+          {
+            key: 'kpiRate',
+            label: 'Engagement rate',
+            Icon: Activity,
+            tone: 'text-emerald-500 bg-emerald-50',
+            value: `${derivedKpis.rate.toFixed(2)}%`,
+            delta: derivedKpis.rateDelta,
+            sub: 'of new views became likes, saves or comments',
+            higherIsBetter: true,
+          },
+          {
+            key: 'kpiPace',
+            label: 'Daily pace',
+            Icon: Gauge,
+            tone: 'text-blue-500 bg-blue-50',
+            value: compact(Math.round(derivedKpis.pace)),
+            delta: derivedKpis.paceDelta,
+            sub: 'views earned on an average day',
+            higherIsBetter: true,
+          },
+          {
+            key: 'kpiActive',
+            label: 'Shots earning',
+            Icon: Layers,
+            tone: 'text-violet-500 bg-violet-50',
+            value: `${derivedKpis.active}/${derivedKpis.totalShots}`,
+            delta: derivedKpis.activeDelta,
+            sub: 'gained at least one view in this range',
+            higherIsBetter: true,
+          },
+          {
+            key: 'kpiConc',
+            label: 'Top-shot reliance',
+            Icon: TrendingUp,
+            tone: 'text-pink-500 bg-pink-50',
+            value: `${derivedKpis.conc.toFixed(0)}%`,
+            delta: null,
+            sub: `of new views came from the strongest ${derivedKpis.topN} shot${derivedKpis.topN > 1 ? 's' : ''}`,
+            higherIsBetter: false,
+          },
+        ].map(({ key, label, Icon, tone, value, delta, sub, higherIsBetter }) => {
+          const good = delta !== null && (higherIsBetter ? delta >= 0 : delta <= 0);
+          return (
+            <div key={key} className={`${CARD} p-5`}>
+              <div className="flex items-center justify-between mb-2.5">
+                <div className={`p-2 rounded-xl ${tone}`}>
+                  <Icon className="w-4 h-4" />
+                </div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                  {label} <InfoTip k={key} />
+                </span>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <h3 className="text-2xl font-black text-slate-800 font-mono tracking-tight">{value}</h3>
+                {delta !== null && derivedKpis.hasPrev && Math.abs(delta) >= 1 && (
+                  <span
+                    className={`text-[11px] font-mono font-black flex items-center gap-0.5 ${
+                      good ? 'text-emerald-600' : 'text-red-500'
+                    }`}
+                  >
+                    {delta >= 0 ? (
+                      <TrendingUp className="w-3 h-3" />
+                    ) : (
+                      <TrendingDown className="w-3 h-3" />
+                    )}
+                    {Math.abs(delta).toFixed(0)}%
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] font-semibold text-slate-400 mt-1.5 leading-snug">{sub}</p>
+            </div>
+          );
+        })}
+      </section>
+
+      {/* ===================== INSIGHTS ===================== */}
+      {insights.length > 0 && (
+        <div className={`${CARD} overflow-hidden`}>
+          <div className="px-5 py-3.5 border-b border-slate-100 bg-gradient-to-r from-pink-50/60 to-transparent flex items-center justify-between gap-3">
+            <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+              <Sparkle className="w-4 h-4 text-pink-500" />
+              What changed <InfoTip k="insights" />
+            </h3>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{rangeLabel}</span>
+          </div>
+
+          <div className="divide-y divide-slate-50">
+            {(showAllInsights ? insights : insights.slice(0, 4)).map((ins) => {
+              const tone =
+                ins.tone === 'good'
+                  ? { dot: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50' }
+                  : ins.tone === 'bad'
+                  ? { dot: 'bg-red-400', text: 'text-red-700', bg: 'bg-red-50' }
+                  : ins.tone === 'action'
+                  ? { dot: 'bg-amber-500', text: 'text-amber-700', bg: 'bg-amber-50' }
+                  : { dot: 'bg-slate-400', text: 'text-slate-700', bg: 'bg-slate-50' };
+              return (
+                <div key={ins.id} className="px-5 py-3.5 flex items-start gap-3 hover:bg-slate-50/50 transition-colors">
+                  <span className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${tone.dot}`} />
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-[12px] font-extrabold leading-snug ${tone.text}`}>{ins.headline}</p>
+                    <p className="text-[11px] text-slate-500 font-medium leading-relaxed mt-0.5">{ins.detail}</p>
+                    {ins.action && (
+                      <p className="text-[11px] text-slate-600 font-semibold leading-relaxed mt-1 flex items-start gap-1.5">
+                        <span className="text-slate-300 mt-px">→</span>
+                        {ins.action}
+                      </p>
+                    )}
+                  </div>
+                  {ins.tone === 'action' && (
+                    <button
+                      onClick={() =>
+                        ins.anchor === 'promotions'
+                          ? onOpenPromotions?.()
+                          : ins.anchor === 'collections'
+                          ? onOpenCollections?.()
+                          : undefined
+                      }
+                      className={`flex-shrink-0 text-[10px] font-bold px-2.5 py-1.5 rounded-lg border transition-colors ${tone.bg} ${tone.text} border-amber-200 hover:brightness-95`}
+                    >
+                      Fix this
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {insights.length > 4 && (
+            <button
+              onClick={() => setShowAllInsights(!showAllInsights)}
+              className="w-full px-5 py-2.5 border-t border-slate-100 bg-slate-50/50 text-[10px] font-bold text-slate-500 hover:text-slate-700 transition-colors"
+            >
+              {showAllInsights ? 'Show fewer' : `Show ${insights.length - 4} more finding${insights.length - 4 > 1 ? 's' : ''}`}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* ===================== KPI ROW ===================== */}
       {collections.length > 0 && (
         <>
@@ -1445,8 +1833,7 @@ export function AnalysisTab({
             <p className="text-xs text-slate-400 font-medium mt-0.5">
               {trendView === 'daily' ? 'Earned per day' : 'Running total'} · {rangeLabel}
               {trendData.weekly && ' · bucketed weekly'}
-              {exclusion === 'paid' && ' · paid gains removed'}
-              {exclusion === 'all' && ' · paid + featured gains removed'}
+              {filterActive && ` · ${filterSummary.toLowerCase()}`}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -2056,25 +2443,70 @@ export function AnalysisTab({
         </div>
 
         <div className={`${CARD} p-6`}>
-          <div className="flex items-start justify-between gap-2 mb-4">
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
             <div>
               <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
                 <Gauge className="w-4 h-4 text-slate-400" />
                 Daily Activity Heatmap <InfoTip k="heatmap" />
               </h3>
               <p className="text-xs text-slate-400 font-medium mt-0.5">
-                {METRIC_META[heatMetric].label} gained per day · last 16 weeks
-                {exclusion === 'paid' && ' · paid gains removed'}
-                {exclusion === 'all' && ' · promoted gains removed'}
+                {METRIC_META[heatMetric].label} gained each day ·{' '}
+                {heatScope === 'range' ? rangeLabel : 'last 16 weeks, selected range outlined'}
+                {filterActive && ` · ${filterSummary.toLowerCase()}`}
               </p>
             </div>
-            <Seg>
-              {A.METRIC_KEYS.map((m) => (
-                <SegBtn key={m} active={heatMetric === m} onClick={() => setHeatMetric(m)}>
-                  {METRIC_META[m].label.slice(0, 1)}
+            <div className="flex flex-wrap items-center gap-2">
+              <Seg>
+                <SegBtn active={heatScope === 'range'} onClick={() => setHeatScope('range')}>
+                  Selected range
                 </SegBtn>
-              ))}
-            </Seg>
+                <SegBtn active={heatScope === 'context'} onClick={() => setHeatScope('context')}>
+                  Wider context
+                </SegBtn>
+              </Seg>
+              <Seg>
+                {A.METRIC_KEYS.map((m) => (
+                  <SegBtn key={m} active={heatMetric === m} onClick={() => setHeatMetric(m)}>
+                    {METRIC_META[m].label.slice(0, 1)}
+                  </SegBtn>
+                ))}
+              </Seg>
+            </div>
+          </div>
+
+          {/* Plain-language summary of exactly what is on screen */}
+          <div className="flex flex-wrap gap-x-6 gap-y-2 mb-4 pb-4 border-b border-slate-100">
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">In this range</p>
+              <p className="text-sm font-black text-slate-800 font-mono">
+                +{heatmap.totalInRange.toLocaleString()}
+                <span className="text-[10px] font-bold text-slate-400 ml-1.5">
+                  {METRIC_META[heatMetric].label.toLowerCase()}
+                </span>
+              </p>
+            </div>
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Busiest day</p>
+              <p className="text-sm font-black text-slate-800 font-mono">
+                {heatmap.busiest ? `+${heatmap.busiest.gain.toLocaleString()}` : '—'}
+                {heatmap.busiest && (
+                  <span className="text-[10px] font-bold text-slate-400 ml-1.5">
+                    {fmtDateLabel(heatmap.busiest.iso)}
+                  </span>
+                )}
+              </p>
+            </div>
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Daily average</p>
+              <p className="text-sm font-black text-slate-800 font-mono">
+                {heatmap.loggedDays > 0
+                  ? `+${Math.round(heatmap.totalInRange / heatmap.loggedDays).toLocaleString()}`
+                  : '—'}
+                <span className="text-[10px] font-bold text-slate-400 ml-1.5">
+                  over {heatmap.loggedDays} day{heatmap.loggedDays === 1 ? '' : 's'}
+                </span>
+              </p>
+            </div>
           </div>
 
           <div className="overflow-x-auto pb-1">
@@ -2085,7 +2517,7 @@ export function AnalysisTab({
                   <span
                     key={i}
                     className="absolute text-[9px] font-black text-slate-400 uppercase"
-                    style={{ left: `${m.col * 22}px` }}
+                    style={{ left: `${m.col * (heatmap.cell + 4)}px` }}
                   >
                     {m.label}
                   </span>
@@ -2095,25 +2527,33 @@ export function AnalysisTab({
                 {/* Weekday labels */}
                 <div className="flex flex-col mr-1.5 w-7 flex-shrink-0">
                   {A.WEEKDAY_NAMES.map((w, i) => (
-                    <span key={w} className="h-[22px] flex items-center text-[9px] font-black text-slate-400 uppercase">
-                      {i % 2 === 0 ? w : ''}
+                    <span
+                      key={w}
+                      className="flex items-center text-[9px] font-black text-slate-400 uppercase"
+                      style={{ height: heatmap.cell + 4 }}
+                    >
+                      {heatmap.cell >= 26 || i % 2 === 0 ? w : ''}
                     </span>
                   ))}
                 </div>
                 {/* Grid */}
-                <div className="flex gap-[4px]">
+                <div className="flex" style={{ gap: 4 }}>
                   {heatmap.weeks.map((col, ci) => (
-                    <div key={ci} className="flex flex-col gap-[4px]">
+                    <div key={ci} className="flex flex-col" style={{ gap: 4 }}>
                       {col.map((cell) => {
                         const boosted = heatmap.boostDates.has(cell.iso);
                         const feat = !boosted && heatmap.featuredDates.has(cell.iso);
                         const susp = !boosted && !feat && heatmap.suspectedDates.has(cell.iso);
+                        const outside = !cell.inRange;
                         return (
                           <div
                             key={cell.iso}
                             title={
-                              cell.inLog
-                                ? `${cell.iso} — ${
+                              !cell.inLog
+                                ? `${cell.iso} — before tracking started`
+                                : outside
+                                ? `${cell.iso} — outside the selected range`
+                                : `${cell.iso} — ${
                                     cell.isBaseline
                                       ? 'baseline (first logged day)'
                                       : cell.gain !== null
@@ -2128,12 +2568,13 @@ export function AnalysisTab({
                                       ? ' · detected spike'
                                       : ''
                                   }`
-                                : cell.iso + ' — before tracking started'
                             }
-                            className={`w-[18px] h-[18px] rounded-[4px] transition-transform hover:scale-125 ${
-                              cell.isBaseline ? 'border border-dashed border-slate-400' : ''
+                            className={`rounded-[4px] transition-transform hover:scale-110 ${
+                              cell.isBaseline && !outside ? 'border border-dashed border-slate-400' : ''
                             } ${
-                              boosted
+                              outside
+                                ? ''
+                                : boosted
                                 ? 'ring-2 ring-pink-400 ring-offset-1'
                                 : feat
                                 ? 'ring-2 ring-indigo-400 ring-offset-1'
@@ -2141,7 +2582,12 @@ export function AnalysisTab({
                                 ? 'ring-2 ring-amber-400 ring-offset-1'
                                 : ''
                             }`}
-                            style={{ background: heatColor(cell.gain, cell.inLog) }}
+                            style={{
+                              width: heatmap.cell,
+                              height: heatmap.cell,
+                              background: heatColor(cell.gain, cell.inLog),
+                              opacity: outside ? 0.22 : 1,
+                            }}
                           />
                         );
                       })}
@@ -2160,19 +2606,28 @@ export function AnalysisTab({
                 <span key={i} className="w-3.5 h-3.5 rounded-[3px]" style={{ background: `rgba(234,76,137,${a})` }} />
               ))}
               More
+              <span className="ml-1 font-mono text-slate-300">
+                (max +{heatmap.maxGain.toLocaleString()})
+              </span>
             </span>
+            {heatScope === 'context' && (
+              <span className="flex items-center gap-1.5">
+                <span className="w-3.5 h-3.5 rounded-[3px] bg-pink-200 opacity-25" /> outside the selected range
+              </span>
+            )}
             <span className="flex items-center gap-1.5">
               <span className="w-3.5 h-3.5 rounded-[3px] border border-dashed border-slate-400 bg-slate-100" /> baseline day
             </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-3.5 h-3.5 rounded-[3px] ring-2 ring-pink-400 bg-pink-100" /> paid boost
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-3.5 h-3.5 rounded-[3px] ring-2 ring-indigo-400 bg-indigo-50" /> featured
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-3.5 h-3.5 rounded-[3px] ring-2 ring-amber-400 bg-amber-50" /> detected spike
-            </span>
+            {paidUrls.size > 0 && (
+              <span className="flex items-center gap-1.5">
+                <span className="w-3.5 h-3.5 rounded-[3px] ring-2 ring-pink-400 bg-pink-100" /> paid boost
+              </span>
+            )}
+            {featuredUrls.size > 0 && (
+              <span className="flex items-center gap-1.5">
+                <span className="w-3.5 h-3.5 rounded-[3px] ring-2 ring-indigo-400 bg-indigo-50" /> featured
+              </span>
+            )}
           </div>
         </div>
       </section>
@@ -2965,8 +3420,7 @@ export function AnalysisTab({
             </h3>
             <p className="text-xs text-slate-400 font-medium mt-0.5">
               {topShotsMode === 'growth' ? `Ranked by growth inside ${rangeLabel}` : 'Ranked by all-time totals'}
-              {exclusion === 'paid' && ' · paid excluded'}
-              {exclusion === 'all' && ' · organic only'}
+              {filterActive && ` · ${filterSummary.toLowerCase()}`}
             </p>
           </div>
           <Seg>

@@ -11,7 +11,8 @@
  * data/.
  */
 
-import { IS_STATIC, GITHUB_REPO, getSavedGithubToken } from './api.ts';
+import { IS_STATIC, GITHUB_REPO } from './api.ts';
+import { getToken, markRejected } from './githubConnection.ts';
 import { Collection, sanitizeCollections } from './collections.ts';
 
 const BASE = (import.meta as any).env?.BASE_URL || '/';
@@ -95,10 +96,12 @@ async function saveViaGithub(list: Collection[], token: string): Promise<Persist
 
   const res = await fetch(apiUrl, { method: 'PUT', headers, body: JSON.stringify(body) });
   if (res.status === 401 || res.status === 403) {
+    // A rejected token should not linger and keep failing silently.
+    markRejected();
     return {
       ok: false,
       message:
-        'GitHub rejected the token (401/403). It needs "Contents: Read and write" permission on this repository.',
+        'GitHub rejected the token. It needs "Contents: Read and write" permission on this repository.',
     };
   }
   if (!res.ok) {
@@ -113,8 +116,7 @@ async function saveViaGithub(list: Collection[], token: string): Promise<Persist
   }
   return {
     ok: true,
-    message:
-      'Committed data/collections.json. GitHub Pages will redeploy in ~1–2 minutes with the new grouping.',
+    message: 'Saved. GitHub Pages redeploys in about a minute, then everyone sees it.',
   };
 }
 
@@ -124,7 +126,7 @@ export async function persistCollections(
 ): Promise<PersistResult> {
   const clean = sanitizeCollections(list);
   if (!IS_STATIC) return saveViaServer(clean);
-  const token = (tokenOverride || getSavedGithubToken()).trim();
+  const token = (tokenOverride || getToken()).trim();
   if (!token) {
     return {
       ok: false,

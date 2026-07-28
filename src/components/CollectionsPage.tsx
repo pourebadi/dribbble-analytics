@@ -50,8 +50,6 @@ export function CollectionsPage({ shots }: { shots: Shot[] }) {
   const { working, dirty, loaded, setWorking, discard, save } = useCollectionDraft();
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null);
-  const [needToken, setNeedToken] = useState(false);
-  const [tokenInput, setTokenInput] = useState('');
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
@@ -236,11 +234,13 @@ export function CollectionsPage({ shots }: { shots: Shot[] }) {
     const res = await save(tokenOverride);
     setSaving(false);
     if (res.needToken) {
-      setNeedToken(true);
-      setStatus({ ok: false, message: res.message });
+      setStatus({
+        ok: false,
+        message:
+          'Connect your GitHub token using the box at the top of this page, then press Save again.',
+      });
       return;
     }
-    setNeedToken(false);
     setStatus({ ok: res.ok, message: res.message });
   };
 
@@ -596,36 +596,9 @@ export function CollectionsPage({ shots }: { shots: Shot[] }) {
       </div>
 
       {/* token + status */}
-      {(needToken || status) && (
+      {status && (
         <div className={`${CARD} p-5 space-y-3`}>
-          {needToken && (
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2.5">
-              <p className="text-xs font-bold text-slate-700">Paste a GitHub token to commit collections</p>
-              <p className="text-[11px] text-slate-500 leading-relaxed">
-                This dashboard is served statically, so saving commits <code>data/collections.json</code> through
-                the GitHub API. Use a fine-grained token with{' '}
-                <span className="font-semibold">Contents: Read and write</span> on this repository. It is stored
-                only in this browser.
-              </p>
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  value={tokenInput}
-                  onChange={(e) => setTokenInput(e.target.value)}
-                  placeholder="github_pat_…"
-                  className={`${INPUT} font-mono`}
-                />
-                <button
-                  onClick={() => doSave(tokenInput.trim())}
-                  disabled={!tokenInput.trim() || saving}
-                  className={BTN_PRIMARY}
-                >
-                  Save
-                </button>
-              </div>
-            </div>
-          )}
-          {status && (
+                    {status && (
             <p
               className={`text-xs font-semibold rounded-xl px-3.5 py-2.5 border flex items-start gap-2 ${
                 status.ok
