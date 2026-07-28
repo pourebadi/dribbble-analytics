@@ -1371,8 +1371,13 @@ export function AnalysisTab({
                   </SegBtn>
                 </Seg>
 
-                {/* Per-campaign detail, only worth offering with more than one */}
-                {boosts.length > 1 && (
+                {/*
+                  Every registered promotion is listed here, always — one, or
+                  twenty. An earlier version only rendered this with more than
+                  one promotion, which meant a single registered boost could not
+                  be filtered at all.
+                */}
+                {(
                   <div className="relative">
                     <button
                       onClick={() => setPromoPanelOpen(!promoPanelOpen)}
@@ -1384,7 +1389,9 @@ export function AnalysisTab({
                       title="Remove one specific campaign instead of a whole category"
                     >
                       <SlidersHorizontal className="w-3.5 h-3.5" />
-                      {excludedIds.size > 0 ? `${excludedIds.size} campaign${excludedIds.size > 1 ? 's' : ''}` : 'Per campaign'}
+                      {excludedIds.size > 0
+                        ? `${excludedIds.size} of ${boosts.length} removed`
+                        : `Pick promotions (${boosts.length})`}
                       <ChevronDown className={`w-3 h-3 transition-transform ${promoPanelOpen ? 'rotate-180' : ''}`} />
                     </button>
 
@@ -1392,56 +1399,85 @@ export function AnalysisTab({
                       <>
                         <div className="fixed inset-0 z-40" onClick={() => setPromoPanelOpen(false)} />
                         <div className="absolute z-50 right-0 mt-2 w-[340px] bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-200/70 overflow-hidden">
-                          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60">
-                            <p className="text-[11px] font-extrabold text-slate-800">Remove single campaigns</p>
-                            <p className="text-[10px] text-slate-400 font-medium mt-0.5 leading-snug">
-                              For when you want the account without one specific push, rather than without a whole
-                              category.
-                            </p>
+                          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60 flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-[11px] font-extrabold text-slate-800">
+                                Remove specific promotions
+                              </p>
+                              <p className="text-[10px] text-slate-400 font-medium mt-0.5 leading-snug">
+                                Tick any boost or feature to take it out of every chart. Pick one, several, or all.
+                              </p>
+                            </div>
+                            {boosts.length > 1 && (
+                              <button
+                                onClick={() =>
+                                  setExcludedIds(
+                                    excludedIds.size === boosts.length
+                                      ? new Set()
+                                      : new Set(boosts.map((b) => b.id))
+                                  )
+                                }
+                                className="flex-shrink-0 text-[10px] font-bold text-pink-600 hover:underline whitespace-nowrap"
+                              >
+                                {excludedIds.size === boosts.length ? 'None' : 'All'}
+                              </button>
+                            )}
                           </div>
-                          <div className="p-2 max-h-64 overflow-y-auto">
-                            {boosts.map((b) => {
-                              const forced = excludedKinds.includes(b.kind);
-                              const checked = forced || excludedIds.has(b.id);
-                              const shot = shots.find((sh) => sh.url === b.shotUrl);
+                          <div className="p-2 max-h-72 overflow-y-auto">
+                            {(['boost', 'featured'] as PromoKind[]).map((kind) => {
+                              const group = boosts.filter((b) => b.kind === kind);
+                              if (group.length === 0) return null;
                               return (
-                                <label
-                                  key={b.id}
-                                  className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl transition-colors ${
-                                    forced ? 'opacity-45' : 'hover:bg-slate-50 cursor-pointer'
-                                  }`}
-                                  title={
-                                    forced
-                                      ? `Already removed by the "${traffic === 'no-paid' ? 'No paid' : 'Organic'}" setting`
-                                      : undefined
-                                  }
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    disabled={forced}
-                                    onChange={() => {
-                                      const next = new Set(excludedIds);
-                                      if (next.has(b.id)) next.delete(b.id);
-                                      else next.add(b.id);
-                                      setExcludedIds(next);
-                                    }}
-                                    className="accent-pink-500 w-3.5 h-3.5 flex-shrink-0"
-                                  />
-                                  {b.kind === 'boost' ? (
-                                    <Zap className="w-3 h-3 text-pink-500 flex-shrink-0" />
-                                  ) : (
-                                    <Star className="w-3 h-3 text-indigo-500 flex-shrink-0" />
-                                  )}
-                                  <span className="min-w-0 flex-1">
-                                    <span className="block text-[11px] font-bold text-slate-700 truncate leading-tight">
-                                      {shot ? A.shotTitle(shot) : b.shotUrl}
-                                    </span>
-                                    <span className="block text-[9px] font-mono font-bold text-slate-400">
-                                      {b.start} → {b.end || 'running'}
-                                    </span>
-                                  </span>
-                                </label>
+                                <div key={kind} className="mb-1 last:mb-0">
+                                  <p className="px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-slate-400">
+                                    {kind === 'boost' ? 'Paid boosts' : 'Featured'} ({group.length})
+                                  </p>
+                                  {group.map((b) => {
+                                    const forced = excludedKinds.includes(b.kind);
+                                    const checked = forced || excludedIds.has(b.id);
+                                    const shot = shots.find((sh) => sh.url === b.shotUrl);
+                                    return (
+                                      <label
+                                        key={b.id}
+                                        className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl transition-colors ${
+                                          forced ? 'opacity-45' : 'hover:bg-slate-50 cursor-pointer'
+                                        }`}
+                                        title={
+                                          forced
+                                            ? `Already removed by the "${traffic === 'no-paid' ? 'No paid' : 'Organic'}" setting`
+                                            : undefined
+                                        }
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          disabled={forced}
+                                          onChange={() => {
+                                            const next = new Set(excludedIds);
+                                            if (next.has(b.id)) next.delete(b.id);
+                                            else next.add(b.id);
+                                            setExcludedIds(next);
+                                          }}
+                                          className="accent-pink-500 w-3.5 h-3.5 flex-shrink-0"
+                                        />
+                                        {b.kind === 'boost' ? (
+                                          <Zap className="w-3 h-3 text-pink-500 flex-shrink-0" />
+                                        ) : (
+                                          <Star className="w-3 h-3 text-indigo-500 flex-shrink-0" />
+                                        )}
+                                        <span className="min-w-0 flex-1">
+                                          <span className="block text-[11px] font-bold text-slate-700 truncate leading-tight">
+                                            {shot ? A.shotTitle(shot) : b.shotUrl}
+                                          </span>
+                                          <span className="block text-[9px] font-mono font-bold text-slate-400">
+                                            {b.start} → {b.end || 'running'} · +
+                                            {A.gainedInWindow(matrix, b, 'views').toLocaleString()} views
+                                          </span>
+                                        </span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
                               );
                             })}
                           </div>
