@@ -97,6 +97,60 @@ export interface DayAggregate extends HistPoint {
   shotsCount: number;
 }
 
+/**
+ * Carry-forward alignment for every shot, computed once.
+ *
+ * Alignment is the expensive part of this module (one pass per shot per date),
+ * and it used to be recomputed by aggregateTotals, buildGainMatrix and again
+ * inside the stacked-project chart — the last of which called alignShot *inside*
+ * a loop over dates, making it O(dates² × shots): 11.8s at 1,000 shots over a
+ * year. Everything now derives from a single frame.
+ */
+export interface Frame {
+  dates: string[];
+  /** shot url → aligned snapshot per date (null before the shot's first log) */
+  aligned: Map<string, (HistPoint | null)[]>;
+  totals: DayAggregate[];
+}
+
+export function buildFrame(shots: Shot[], dates: string[]): Frame {
+  const aligned = new Map<string, (HistPoint | null)[]>();
+  const totals: DayAggregate[] = dates.map((date) => ({
+    date,
+    views: 0,
+    likes: 0,
+    saves: 0,
+    comments: 0,
+    shotsCount: 0,
+  }));
+
+  shots.forEach((shot) => {
+    const hist = sortedHistory(shot);
+    const row: (HistPoint | null)[] = new Array(dates.length);
+    let hi = 0;
+    let last: HistPoint | null = null;
+    for (let i = 0; i < dates.length; i++) {
+      const d = dates[i];
+      while (hi < hist.length && hist[hi].date <= d) {
+        last = hist[hi];
+        hi++;
+      }
+      row[i] = last;
+      if (last) {
+        const t = totals[i];
+        t.views += last.views;
+        t.likes += last.likes;
+        t.saves += last.saves;
+        t.comments += last.comments;
+        t.shotsCount += 1;
+      }
+    }
+    aligned.set(shot.url, row);
+  });
+
+  return { dates, aligned, totals };
+}
+
 /** Aggregate carry-forward totals for every date. */
 export function aggregateTotals(shots: Shot[], dates: string[]): DayAggregate[] {
   const result: DayAggregate[] = dates.map((date) => ({
@@ -130,6 +184,41 @@ export interface ShotGains {
   raw: Record<MetricKey, (number | null)[]>;
   /** gain[i] = max(0, raw[i]) with null → 0 */
   gain: Record<MetricKey, number[]>;
+}
+
+/** Gains from a pre-aligned row — the hot path when a Frame is available. */
+export function gainsFromAligned(
+  url: string,
+  aligned: (HistPoint | null)[] | undefined,
+  dates: string[]
+): ShotGains {
+  const raw: Record<MetricKey, (number | null)[]> = {
+    views: new Array(dates.length),
+    likes: new Array(dates.length),
+    saves: new Array(dates.length),
+    comments: new Array(dates.length),
+  };
+  const gain: Record<MetricKey, number[]> = {
+    views: new Array(dates.length),
+    likes: new Array(dates.length),
+    saves: new Array(dates.length),
+    comments: new Array(dates.length),
+  };
+  // Metric-outer with hoisted array references: the inner loop then touches two
+  // contiguous arrays instead of re-resolving raw[m] / gain[m] per date.
+  for (let k = 0; k < METRIC_KEYS.length; k++) {
+    const m = METRIC_KEYS[k];
+    const rawM = raw[m];
+    const gainM = gain[m];
+    for (let i = 0; i < dates.length; i++) {
+      const cur = aligned ? aligned[i] : null;
+      const prev = aligned && i > 0 ? aligned[i - 1] : null;
+      const r = cur && prev ? cur[m] - prev[m] : null;
+      rawM[i] = r;
+      gainM[i] = r !== null && r > 0 ? r : 0;
+    }
+  }
+  return { url, raw, gain };
 }
 
 export function shotGains(shot: Shot, dates: string[]): ShotGains {
@@ -168,7 +257,8 @@ export interface GainMatrix {
 export function buildGainMatrix(
   shots: Shot[],
   dates: string[],
-  excludedDates?: Set<string>
+  excludedDates?: Set<string>,
+  frame?: Frame
 ): GainMatrix {
   const perShot = new Map<string, ShotGains>();
   const agg: Record<MetricKey, number[]> = {
@@ -186,23 +276,34 @@ export function buildGainMatrix(
   const blocked = dates.map((d) => (excludedDates ? excludedDates.has(d) : false));
 
   shots.forEach((shot) => {
-    const g = shotGains(shot, dates);
+    const g = frame ? gainsFromAligned(shot.url, frame.aligned.get(shot.url), dates) : shotGains(shot, dates);
     // Neutralize untrustworthy days before anything downstream can read them.
-    METRIC_KEYS.forEach((m) => {
-      for (let i = 0; i < dates.length; i++) {
-        if (blocked[i]) {
-          g.gain[m][i] = 0;
-          g.raw[m][i] = null;
+    if (excludedDates && excludedDates.size > 0) {
+      for (let k = 0; k < METRIC_KEYS.length; k++) {
+        const m = METRIC_KEYS[k];
+        const gainM = g.gain[m];
+        const rawM = g.raw[m];
+        for (let i = 0; i < dates.length; i++) {
+          if (blocked[i]) {
+            gainM[i] = 0;
+            rawM[i] = null;
+          }
         }
       }
-    });
+    }
     perShot.set(shot.url, g);
-    METRIC_KEYS.forEach((m) => {
+    for (let k = 0; k < METRIC_KEYS.length; k++) {
+      const m = METRIC_KEYS[k];
+      const aggM = agg[m];
+      const aggRawM = aggRaw[m];
+      const gainM = g.gain[m];
+      const rawM = g.raw[m];
       for (let i = 0; i < dates.length; i++) {
-        agg[m][i] += g.gain[m][i];
-        aggRaw[m][i] += g.raw[m][i] ?? 0;
+        aggM[i] += gainM[i];
+        const r = rawM[i];
+        if (r !== null) aggRawM[i] += r;
       }
-    });
+    }
   });
   return { dates, perShot, agg, aggRaw, excluded: blocked };
 }

@@ -4,6 +4,7 @@ import { Search, Check, ChevronDown, X, Eye, Heart, Image as ImageIcon } from 'l
 import { Shot } from '../types.ts';
 import { shotTitle } from '../analytics.ts';
 import { compact } from '../chartTheme.ts';
+import { PICKER_TRIGGER, PICKER_TRIGGER_OPEN } from '../formStyles.ts';
 
 /**
  * Shot picker.
@@ -13,6 +14,49 @@ import { compact } from '../chartTheme.ts';
  * artwork, matches on title/tag/project, supports full keyboard navigation, and
  * renders its panel through a portal so no card overflow can clip it.
  */
+/**
+ * Thumbnail.
+ *
+ * Declared at module scope on purpose: when this lived inside ShotPicker it was
+ * a brand-new component type on every keystroke, so React unmounted and
+ * remounted every <img>. Inside a portal-rendered scroll container that made
+ * `loading="lazy"` unreliable — images frequently never re-fetched and the slot
+ * kept showing whatever had been painted there before, which read as "the same
+ * thumbnail repeating for different shots".
+ *
+ * The `key` on the <img> ties the element to its URL so React can never reuse a
+ * painted image across two different shots, and eager decoding keeps a 60-row
+ * dropdown correct.
+ */
+function Thumb({ shot, size = 'md' }: { shot: Shot; size?: 'sm' | 'md' }) {
+  const dims = size === 'sm' ? { width: 36, height: 28 } : { width: 48, height: 36 };
+  const [failed, setFailed] = useState(false);
+
+  if (!shot.imageUrl || failed) {
+    return (
+      <span
+        style={dims}
+        className="rounded-md bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0"
+      >
+        <ImageIcon className="w-3.5 h-3.5 text-slate-300" />
+      </span>
+    );
+  }
+
+  return (
+    <img
+      key={shot.imageUrl}
+      src={shot.imageUrl}
+      alt=""
+      referrerPolicy="no-referrer"
+      decoding="async"
+      onError={() => setFailed(true)}
+      style={dims}
+      className="rounded-md object-cover border border-slate-200 flex-shrink-0 bg-slate-100"
+    />
+  );
+}
+
 export function ShotPicker({
   shots,
   value,
@@ -125,23 +169,6 @@ export function ShotPicker({
     }
   };
 
-  const Thumb = ({ shot, size = 'md' }: { shot: Shot; size?: 'sm' | 'md' }) => {
-    const cls = size === 'sm' ? 'w-9 h-7' : 'w-12 h-9';
-    return shot.imageUrl ? (
-      <img
-        src={shot.imageUrl}
-        alt=""
-        referrerPolicy="no-referrer"
-        loading="lazy"
-        className={`${cls} rounded-md object-cover border border-slate-200 flex-shrink-0 bg-slate-100`}
-      />
-    ) : (
-      <span className={`${cls} rounded-md bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0`}>
-        <ImageIcon className="w-3.5 h-3.5 text-slate-300" />
-      </span>
-    );
-  };
-
   const panel = (
     <>
       <div className="fixed inset-0 z-[90]" onClick={() => setOpen(false)} />
@@ -249,9 +276,7 @@ export function ShotPicker({
         ref={btnRef}
         type="button"
         onClick={() => setOpen(!open)}
-        className={`w-full flex items-center gap-2.5 px-2.5 py-2 bg-slate-50 border rounded-lg transition-all text-left ${
-          open ? 'border-pink-300 ring-2 ring-pink-100 bg-white' : 'border-slate-200 hover:border-slate-300'
-        }`}
+        className={`${PICKER_TRIGGER} ${open ? PICKER_TRIGGER_OPEN : ''}`}
       >
         {selected ? (
           <>

@@ -1,10 +1,15 @@
-import React, { useState, useRef, useLayoutEffect, useCallback } from 'react';
+import React, { useState, useRef, useLayoutEffect, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { HelpCircle, X } from 'lucide-react';
 import { HELP, HelpText } from '../helpTexts.ts';
 
 /**
  * Help popover.
+ *
+ * Opens on hover (with a short delay so it does not flash while the pointer
+ * crosses the icon) and stays open while the pointer is over the panel itself,
+ * so the text can be read and selected. Click still works and pins it open,
+ * which is what touch devices and keyboard users get.
  *
  * Rendered through a portal on document.body with fixed positioning, because
  * cards and chart containers create overflow/transform contexts that would clip
@@ -24,6 +29,10 @@ export function InfoTip({
   align?: 'left' | 'right';
 }) {
   const [open, setOpen] = useState(false);
+  /** click-pinned tips ignore pointer-leave until dismissed */
+  const [pinned, setPinned] = useState(false);
+  const openTimer = useRef<number | null>(null);
+  const closeTimer = useRef<number | null>(null);
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
@@ -69,7 +78,10 @@ export function InfoTip({
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onScroll);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') {
+        setPinned(false);
+        setOpen(false);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => {
@@ -79,13 +91,41 @@ export function InfoTip({
     };
   }, [open, place]);
 
+  // Pointer handling: a small open delay avoids flashing panels while the
+  // pointer sweeps across a row of icons; a close delay lets the pointer travel
+  // from the icon into the panel without it vanishing on the way.
+  const clearTimers = () => {
+    if (openTimer.current) window.clearTimeout(openTimer.current);
+    if (closeTimer.current) window.clearTimeout(closeTimer.current);
+    openTimer.current = null;
+    closeTimer.current = null;
+  };
+
+  const hoverOpen = () => {
+    if (window.matchMedia('(hover: none)').matches) return; // touch: tap only
+    clearTimers();
+    openTimer.current = window.setTimeout(() => setOpen(true), 120);
+  };
+
+  const hoverClose = () => {
+    if (pinned) return;
+    clearTimers();
+    closeTimer.current = window.setTimeout(() => setOpen(false), 180);
+  };
+
+  useEffect(() => clearTimers, []);
+
   if (!content) return null;
 
   const panel = (
     <>
       <div
-        className={`fixed inset-0 z-[95] ${mobile ? 'bg-slate-900/40 backdrop-blur-[2px]' : ''}`}
-        onClick={() => setOpen(false)}
+        className={`fixed inset-0 z-[95] ${mobile ? 'bg-slate-900/40 backdrop-blur-[2px]' : 'pointer-events-none'}`}
+        onClick={() => {
+          setPinned(false);
+          setOpen(false);
+        }}
+        style={pinned || mobile ? { pointerEvents: 'auto' } : undefined}
       />
       <div
         ref={panelRef}
@@ -106,13 +146,18 @@ export function InfoTip({
               }
         }
         onClick={(e) => e.stopPropagation()}
+        onMouseEnter={clearTimers}
+        onMouseLeave={hoverClose}
       >
         <div className="flex items-start justify-between gap-3 mb-1.5">
           <p className="text-[11px] font-extrabold text-slate-800 normal-case tracking-normal">
             {content.title}
           </p>
           <button
-            onClick={() => setOpen(false)}
+            onClick={() => {
+              setPinned(false);
+              setOpen(false);
+            }}
             className="p-0.5 -m-0.5 rounded text-slate-300 hover:text-slate-600 flex-shrink-0"
             aria-label="Close"
           >
@@ -133,10 +178,21 @@ export function InfoTip({
         type="button"
         aria-label={`About: ${content.title}`}
         aria-expanded={open}
+        onMouseEnter={hoverOpen}
+        onMouseLeave={hoverClose}
+        onFocus={() => setOpen(true)}
+        onBlur={() => !pinned && setOpen(false)}
         onClick={(e) => {
           e.stopPropagation();
           e.preventDefault();
-          setOpen((v) => !v);
+          clearTimers();
+          if (open && pinned) {
+            setPinned(false);
+            setOpen(false);
+          } else {
+            setPinned(true);
+            setOpen(true);
+          }
         }}
         className={`p-0.5 rounded-full transition-colors align-middle ${
           open ? 'text-pink-500 bg-pink-50' : 'text-slate-300 hover:text-pink-400 hover:bg-pink-50/60'

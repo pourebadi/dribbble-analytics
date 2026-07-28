@@ -73,6 +73,7 @@ jobs:
           npx vite build --base "/${{ github.event.repository.name }}/" --outDir dist/static
           mkdir -p dist/static/data
           [ -f data/boosts.json ] || echo '[]' > data/boosts.json
+          [ -f data/collections.json ] || echo '[]' > data/collections.json
           cp data/*.json dist/static/data/
 
       - name: Setup Pages

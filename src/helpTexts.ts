@@ -19,19 +19,35 @@ export const HELP: Record<string, HelpText> = {
   collections: {
     title: 'Collections filter',
     body:
-      'Narrow the whole analysis to one client/project (detected from shot titles, e.g. "… | Dizno") ' +
-      'or to a keyword collection such as "System" (every shot whose title contains that word). ' +
-      'All charts below react to this filter.',
+      'Narrows every chart on this tab to one collection. Collections are the groupings you define yourself on ' +
+      'the Collections page in the sidebar — they are never guessed from shot titles, because parsing titles ' +
+      'silently mis-files anything that does not follow the naming convention and the reader has no way to tell. ' +
+      '"Unassigned" gathers shots that are not in any collection yet. Use Manage to add, rename, recolour or ' +
+      'reassign.',
+  },
+  collectionsPage: {
+    title: 'Collections',
+    body:
+      'A collection is a project, client or any grouping you want to analyse together. The colour you pick here ' +
+      'is the colour that collection uses in every chart. Deleting a collection never deletes shots — they simply ' +
+      'become unassigned. Nothing is stored until you press Save collections, which writes ' +
+      'data/collections.json to the repository so the whole team shares one grouping.',
+  },
+  collectionsAssign: {
+    title: 'Assigning shots',
+    body:
+      'Click any shot to add or remove it from the selected collection. A coloured badge on a shot means it is ' +
+      'already in another collection — that is allowed, and charts attribute the shot to the first collection it ' +
+      'belongs to. "Suggest from titles" pre-fills collections from the "Title | Project" pattern as a starting ' +
+      'point; it is a suggestion you review and edit, not an automatic classification.',
   },
   excludeBoosted: {
     title: 'Traffic filter',
     body:
-      'Chooses which promoted traffic every chart should ignore. "All" uses the raw numbers. ' +
-      '"No paid" removes only paid Boosted Shots — useful for judging what your money bought. ' +
-      '"Organic" also removes free editorial features (Popular, Dribbble picks), leaving only traffic ' +
-      'you earned without promotion. Time-series charts subtract just the gains earned inside each ' +
-      'promotion window, while rankings and concentration drop the promoted shots entirely. ' +
-      'Windows come from the ⚡ Promotions registry.',
+      'Decides which promoted traffic the charts ignore. All = raw numbers. No paid = removes Boosted Shots, ' +
+      'so you can see what your budget actually bought. Organic = also removes free exposure like Popular, ' +
+      'leaving only reach you earned. Use Per campaign to exclude one specific boost or feature instead of a ' +
+      'whole category.',
   },
   attribution: {
     title: 'Traffic attribution',
@@ -132,13 +148,10 @@ export const HELP: Record<string, HelpText> = {
   boosts: {
     title: 'Promotion registry',
     body:
-      'Records the two ways a shot can get non-organic traffic. "Boosted (paid)" is a Dribbble Boosted Shot: ' +
-      'you buy an impression budget (1,000–250,000) for one shot and it runs until the budget is spent, so ' +
-      'log the start day and — once it stops — the end day. Adding the purchased impressions unlocks ' +
-      'CTR (views gained ÷ impressions). "Featured (free)" is editorial or algorithmic exposure such as ' +
-      'Popular or a category spotlight: no cost and no impression budget, but it inflates a shot just like a ' +
-      'boost, so it must be tracked separately rather than mistaken for organic growth. ' +
-      'The registry is saved to data/boosts.json in the repository so the whole team sees the same history.',
+      'Dribbble does not publish which shots were promoted, so you record it here. Boosted (paid) is a Boosted ' +
+      'Shot — you buy an impression budget for one shot and it runs until spent, so log the start day and the ' +
+      'end day once it stops. Adding the impressions you bought unlocks CTR. Featured (free) is exposure ' +
+      'Dribbble gave you, like Popular. Both inflate a shot, so neither should be read as organic growth.',
   },
   dashScraper: {
     title: 'Scraper status',
@@ -180,14 +193,11 @@ export const HELP: Record<string, HelpText> = {
   dataQuality: {
     title: 'Excluded start-up days',
     body:
-      'Not every logged day is a clean 24-hour observation. Two defects are detected automatically and their ' +
-      'day-over-day change is suppressed. "Staggered capture": on the first run the scraper worked through the ' +
-      'shots slowly, so those numbers are snapshots of many different moments rather than one — 2026-07-13 spans ' +
-      'over six hours. "Partial window": the next run happened only a few hours later but landed on the next ' +
-      'calendar day in Tehran time, so its change covers a fraction of a day and absorbs the correction from the ' +
-      'first run — which is exactly why it looked like a +20,000 view spike. Cumulative totals from those days are ' +
-      'still valid and still displayed; only their deltas are ignored, by every chart, weekday bucket, heatmap ' +
-      'cell and boost detector.',
+      'Some logged days are not clean 24-hour readings, and using them would invent growth that never happened. ' +
+      'Staggered capture means the scraper read the shots slowly that day, so the numbers come from different ' +
+      'moments rather than one. Partial window means two runs landed close together, so that day covers only a ' +
+      'few hours. Totals for those days are still correct and still shown — only the day-over-day change is ' +
+      'ignored, everywhere.',
   },
   lifecycle: {
     title: 'Shot lifecycle',
@@ -200,12 +210,10 @@ export const HELP: Record<string, HelpText> = {
   momentum: {
     title: 'Momentum',
     body:
-      'The range is split in half and each shot\'s average views per day in the recent half is compared against ' +
-      'the earlier half. Bars to the right (green) are gaining pace, bars to the left (red) are losing it, and the ' +
-      'length is the change in views per day — so a +40 bar means that shot now earns forty more views every day ' +
-      'than it did. The badge at the top does the same for the portfolio as a whole. Older shots naturally drift ' +
-      'left as launch attention fades; a *new* shot drifting left is the signal worth acting on. Days excluded for ' +
-      'data quality never enter this calculation.',
+      'Splits the date range in half and compares each shot\'s views per day in the recent half against the ' +
+      'earlier half. Gaining pace means it is earning faster than before; losing pace means slower. The badge at ' +
+      'the top shows the same for the whole account. Older shots naturally slow down once the launch buzz fades — ' +
+      'a new shot slowing down is the one worth looking at.',
   },
   promoPaid: {
     title: 'Paid campaigns',
@@ -361,6 +369,14 @@ export const HELP: Record<string, HelpText> = {
       'Charts with several series can be hard to read at once. Click any legend label to hide that series and ' +
       'click again to bring it back — useful for isolating one line, or for removing a large series whose scale ' +
       'flattens the others. A "Show all series" button appears while anything is hidden.',
+  },
+  contribution: {
+    title: 'Where the growth came from',
+    body:
+      'Top Shots ranks by size; this shows what share of the period\'s growth each shot was responsible for. ' +
+      'Read the line at the bottom: if most growth came from the long tail, the account is earning broadly. ' +
+      'If two or three shots produced nearly all of it — especially promoted ones — the period looks better ' +
+      'than it is.',
   },
   historyLedger: {
     title: 'Daily historical ledger',

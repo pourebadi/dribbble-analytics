@@ -42,6 +42,7 @@ import {
 import { Shot } from '../types.ts';
 import { InfoTip } from './InfoTip.tsx';
 import { ShotPicker } from './ShotPicker.tsx';
+import { DatePicker } from './DatePicker.tsx';
 import { IS_STATIC } from '../api.ts';
 import {
   BoostEntry,
@@ -52,6 +53,7 @@ import {
 } from '../boosts.ts';
 import * as A from '../analytics.ts';
 import { C, compact, tooltipStyle, tooltipLabelStyle, legendProps } from '../chartTheme.ts';
+import { INPUT } from '../formStyles.ts';
 import { assessDataQuality } from '../dataQuality.ts';
 
 const CARD = 'bg-white border border-slate-200 rounded-2xl shadow-sm';
@@ -107,6 +109,8 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
   );
 
   const projectMap = useMemo(() => A.buildProjectMap(validShots), [validShots]);
+  const loggedDates = useMemo(() => new Set(dates), [dates]);
+  const lastLoggedDate = dates.length ? dates[dates.length - 1] : undefined;
   const registeredUrls = useMemo(() => new Set(working.map((e) => e.shotUrl)), [working]);
 
   const thumbByUrl = useMemo(() => {
@@ -205,8 +209,7 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
     }
   };
 
-  const inputCls =
-    'text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-pink-200 focus:bg-white transition-all w-full';
+  const inputCls = INPUT;
 
   const visibleList = working.filter((e) => listFilter === 'all' || e.kind === listFilter);
 
@@ -288,9 +291,7 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
           </div>
           <div className="p-5">
           <p className="text-[11px] text-amber-700 font-medium mb-3.5 leading-relaxed">
-            These shots gained views far above their own normal daily rate. The raw data cannot tell why — only you
-            know whether it was a paid boost, an editorial feature, or an external share. Register it so the charts
-            can account for it, or dismiss it if it was organic.
+            These shots suddenly gained far more views than usual. Dribbble does not say why, so tell us: was it a boost you paid for, free exposure from Dribbble, or just organic?
           </p>
           <div className="space-y-1.5">
             {suspected.slice(0, 8).map((s) => {
@@ -303,6 +304,7 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
                   <div className="min-w-0 flex-1 flex items-center gap-2.5">
                     {thumbByUrl.get(s.shotUrl) ? (
                       <img
+                        key={thumbByUrl.get(s.shotUrl)}
                         src={thumbByUrl.get(s.shotUrl)}
                         alt=""
                         referrerPolicy="no-referrer"
@@ -376,8 +378,7 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
             Register a promotion <InfoTip k="boosts" />
           </h3>
           <p className="text-xs text-slate-400 font-medium mt-0.5">
-            Dribbble publishes no promotion flag, so this registry is the only source of truth for boost-aware
-            charts.
+            Dribbble does not show which shots were promoted, so record them here and the charts can separate paid, free and earned reach.
           </p>
         </div>
         <div className="p-6">
@@ -389,14 +390,14 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
                 k: 'boost' as PromoKind,
                 Icon: Zap,
                 title: 'Boosted (paid)',
-                sub: 'You bought an impression budget (1,000–250,000) that runs until spent',
+                sub: 'You bought impressions for this shot — it runs until the budget is spent',
                 on: 'border-pink-400 bg-pink-50 text-pink-700 ring-2 ring-pink-100',
               },
               {
                 k: 'featured' as PromoKind,
                 Icon: Star,
                 title: 'Featured (free)',
-                sub: 'Dribbble surfaced it — Popular, category spotlight, editorial pick',
+                sub: 'Dribbble surfaced it for free — Popular, or a category spotlight',
                 on: 'border-indigo-400 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-100',
               },
             ] as const
@@ -437,11 +438,12 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1 mb-1">
               <CalendarDays className="w-3 h-3" /> Start date
             </span>
-            <input
-              type="date"
+            <DatePicker
               value={draft.start}
-              onChange={(e) => setDraft({ ...draft, start: e.target.value })}
-              className={inputCls}
+              onChange={(iso) => setDraft({ ...draft, start: iso })}
+              max={lastLoggedDate}
+              availableDates={loggedDates}
+              placeholder="Pick the start day"
             />
           </label>
           <label className="block">
@@ -449,11 +451,15 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
               <CalendarDays className="w-3 h-3" /> End date
               <span className="normal-case text-slate-400 font-semibold">(blank = running)</span>
             </span>
-            <input
-              type="date"
+            <DatePicker
               value={draft.end}
-              onChange={(e) => setDraft({ ...draft, end: e.target.value })}
-              className={inputCls}
+              onChange={(iso) => setDraft({ ...draft, end: iso })}
+              min={draft.start || undefined}
+              max={lastLoggedDate}
+              availableDates={loggedDates}
+              placeholder="Still running"
+              clearable
+              clearLabel="Mark as still running"
             />
           </label>
           {draft.kind === 'boost' ? (
@@ -517,7 +523,7 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
             Campaign Impact <InfoTip k="promoImpact" />
           </h3>
           <p className="text-xs text-slate-400 font-medium mb-4">
-            Views and interactions measured inside each promotion window
+            What each promotion actually delivered while it was running
           </p>
           <div style={{ height: Math.max(200, campaignRows.length * 42 + 40) }}>
             <ResponsiveContainer width="100%" height="100%">
@@ -644,6 +650,7 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
                         >
                           {thumbByUrl.get(e.shotUrl) ? (
                             <img
+                              key={thumbByUrl.get(e.shotUrl)}
                               src={thumbByUrl.get(e.shotUrl)}
                               alt=""
                               referrerPolicy="no-referrer"
@@ -727,7 +734,7 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
                     value={tokenInput}
                     onChange={(e) => setTokenInput(e.target.value)}
                     placeholder="github_pat_…"
-                    className="flex-1 text-xs font-mono border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-200"
+                    className={`${INPUT} font-mono`}
                   />
                   <button
                     onClick={() => doSave(tokenInput.trim())}

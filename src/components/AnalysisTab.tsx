@@ -3,7 +3,7 @@
  *
  * Implements the analytics roadmap:
  *  - Range engine (presets + custom picker) shared by every chart
- *  - Collections filter (projects parsed from titles + keyword sets like "System")
+ *  - Collections filter driven by the user-defined groups on the Collections page
  *  - Boost Registry (manual marking of Dribbble Boosted Shots) + automatic
  *    spike detection + a global "Organic only" toggle:
  *      · time-series charts subtract gains earned inside boost windows
@@ -55,6 +55,9 @@ import {
   Star,
   AlertTriangle,
   Layers,
+  Folder,
+  FolderPlus,
+  SlidersHorizontal,
   CalendarDays,
   ShieldCheck,
   Activity,
@@ -66,10 +69,12 @@ import { Shot, Profile } from '../types.ts';
 import { DateRangePicker } from './DateRangePicker.tsx';
 import { InfoTip } from './InfoTip.tsx';
 import { BoostEntry, fetchBoosts } from '../boosts.ts';
+import { Collection, fetchCollections, collectionOfShot } from '../collections.ts';
 import * as A from '../analytics.ts';
 import type { MetricKey } from '../analytics.ts';
 import { assessDataQuality, QUALITY_LABEL } from '../dataQuality.ts';
 import { C, SERIES, compact, tooltipStyle, tooltipLabelStyle, gridProps } from '../chartTheme.ts';
+import { BTN_PRIMARY } from '../formStyles.ts';
 import { useLegendToggle, LegendResetHint } from '../useLegendToggle.tsx';
 
 // ---------------------------------------------------------------------------
@@ -132,11 +137,14 @@ export function AnalysisTab({
   shots,
   profile,
   onOpenPromotions,
+  onOpenCollections,
 }: {
   shots: Shot[];
   profile: Profile | null;
   /** navigates to the Promotions page in the sidebar */
   onOpenPromotions?: () => void;
+  /** navigates to the Collections page in the sidebar */
+  onOpenCollections?: () => void;
 }) {
   // ----- Filters / global state -----
   const [rangePreset, setRangePreset] = useState<'7d' | '14d' | '30d' | '90d' | 'all' | 'custom'>('30d');
@@ -144,7 +152,12 @@ export function AnalysisTab({
   const [customEnd, setCustomEnd] = useState('');
   const [collection, setCollection] = useState<string>('all'); // 'all' | 'proj:NAME' | 'kw:WORD'
   const [exclusion, setExclusion] = useState<A.ExclusionMode>('none');
+  /** ids of individual promotions the user chose to exclude (overrides the mode) */
+  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
+  const [promoPanelOpen, setPromoPanelOpen] = useState(false);
 
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [collectionsLoaded, setCollectionsLoaded] = useState(false);
   const [boosts, setBoosts] = useState<BoostEntry[]>([]);
   const [boostsLoaded, setBoostsLoaded] = useState(false);
 
@@ -162,6 +175,7 @@ export function AnalysisTab({
   const [shotMatrixAxis, setShotMatrixAxis] = useState<'likes' | 'saves'>('likes');
   const [stackMode, setStackMode] = useState<'share' | 'absolute'>('share');
   const [cadenceMode, setCadenceMode] = useState<'normalized' | 'raw'>('normalized');
+  const [contribMetric, setContribMetric] = useState<MetricKey>('views');
 
   // Legend switches — dense charts become readable when a series can be hidden.
   const trendLegend = useLegendToggle();
@@ -178,39 +192,70 @@ export function AnalysisTab({
         setBoostsLoaded(true);
       }
     });
+    fetchCollections().then((c) => {
+      if (alive) {
+        setCollections(c);
+        setCollectionsLoaded(true);
+      }
+    });
     return () => {
       alive = false;
     };
   }, []);
 
-  // ----- Collections -----
-  const projectMap = useMemo(() => A.buildProjectMap(shots), [shots]);
-  const projectCounts = useMemo(() => {
-    const c = new Map<string, number>();
-    shots.forEach((s) => {
-      const p = projectMap.get(s.url) || 'Other';
-      c.set(p, (c.get(p) || 0) + 1);
-    });
-    return Array.from(c.entries()).sort((a, b) => b[1] - a[1]);
-  }, [shots, projectMap]);
-  const keywordCollections = useMemo(() => A.keywordCollectionCounts(shots), [shots]);
+  // ----- Collections (user-defined; no title guessing) -----
+  const collectionByShot = useMemo(() => collectionOfShot(collections), [collections]);
+
+  /** shotUrl → display name, with everything ungrouped bucketed honestly */
+  const projectMap = useMemo(() => {
+    const m = new Map<string, string>();
+    shots.forEach((s) => m.set(s.url, collectionByShot.get(s.url)?.name || 'Unassigned'));
+    return m;
+  }, [shots, collectionByShot]);
+
+  /** collection name → colour, so charts match the colours chosen on the Collections page */
+  const collectionColors = useMemo(() => {
+    const m = new Map<string, string>();
+    collections.forEach((c) => m.set(c.name, c.color));
+    m.set('Unassigned', '#CBD5E1');
+    return m;
+  }, [collections]);
+
+  const shotUrlSet = useMemo(() => new Set(shots.map((s) => s.url)), [shots]);
+  const collectionCounts = useMemo(
+    () =>
+      collections.map((c) => ({
+        id: c.id,
+        name: c.name,
+        color: c.color,
+        count: c.shotUrls.reduce((n, u) => n + (shotUrlSet.has(u) ? 1 : 0), 0),
+      })),
+    [collections, shotUrlSet]
+  );
+
+  const unassignedCount = useMemo(
+    () => shots.filter((s) => !collectionByShot.has(s.url)).length,
+    [shots, collectionByShot]
+  );
 
   const filteredShots = useMemo(() => {
     if (collection === 'all') return shots;
-    if (collection.startsWith('proj:')) {
-      const name = collection.slice(5);
-      return shots.filter((s) => (projectMap.get(s.url) || 'Other') === name);
-    }
-    if (collection.startsWith('kw:')) {
-      const kw = collection.slice(3).toLowerCase();
-      return shots.filter((s) => A.shotTitle(s).toLowerCase().includes(kw));
+    if (collection === 'unassigned') return shots.filter((s) => !collectionByShot.has(s.url));
+    if (collection.startsWith('col:')) {
+      const id = collection.slice(4);
+      const c = collections.find((x) => x.id === id);
+      if (!c) return shots;
+      const set = new Set(c.shotUrls);
+      return shots.filter((s) => set.has(s.url));
     }
     return shots;
-  }, [shots, collection, projectMap]);
+  }, [shots, collection, collections, collectionByShot]);
 
   // ----- Core matrices -----
   const dates = useMemo(() => A.unionDates(filteredShots), [filteredShots]);
-  const totals = useMemo(() => A.aggregateTotals(filteredShots, dates), [filteredShots, dates]);
+  /** carry-forward alignment computed once and shared by every chart below */
+  const frame = useMemo(() => A.buildFrame(filteredShots, dates), [filteredShots, dates]);
+  const totals = frame.totals;
 
   /**
    * Data-quality gate. The first run captured shots over a 6-hour window and a
@@ -220,8 +265,8 @@ export function AnalysisTab({
    */
   const quality = useMemo(() => assessDataQuality(filteredShots, dates), [filteredShots, dates]);
   const matrix = useMemo(
-    () => A.buildGainMatrix(filteredShots, dates, quality.excludedDates),
-    [filteredShots, dates, quality]
+    () => A.buildGainMatrix(filteredShots, dates, quality.excludedDates, frame),
+    [filteredShots, dates, quality, frame]
   );
   /** first date whose delta is trustworthy — analysis effectively starts here */
   const analysisStart = useMemo(() => {
@@ -237,13 +282,19 @@ export function AnalysisTab({
   const featuredUrls = useMemo(() => A.boostedUrlSet(boosts, ['featured']), [boosts]);
   const hasPaid = paidUrls.size > 0;
   const hasFeatured = featuredUrls.size > 0;
-  const excludeBoosted = exclusion !== 'none';
+  const excludeBoosted = exclusion !== 'none' || excludedIds.size > 0;
 
-  /** the registry entries the current exclusion mode strips out */
-  const excludedEntries = useMemo(
-    () => A.filterByKind(boosts, A.kindsToExclude(exclusion)),
-    [boosts, exclusion]
-  );
+  /**
+   * Entries the analysis strips out. The category switch is a shortcut; any
+   * individually ticked promotion is excluded on top of it, so a single
+   * campaign can be isolated without excluding everything of its kind.
+   */
+  const excludedEntries = useMemo(() => {
+    const byMode = A.filterByKind(boosts, A.kindsToExclude(exclusion));
+    const ids = new Set(byMode.map((e) => e.id));
+    const extra = boosts.filter((e) => excludedIds.has(e.id) && !ids.has(e.id));
+    return [...byMode, ...extra];
+  }, [boosts, exclusion, excludedIds]);
   /** shot URLs removed entirely from rankings/concentration */
   const excludedUrls = useMemo(() => A.boostedUrlSet(excludedEntries), [excludedEntries]);
 
@@ -603,23 +654,30 @@ export function AnalysisTab({
     const base = excludeBoosted && topShotsMode === 'total'
       ? filteredShots.filter((s) => !excludedUrls.has(s.url))
       : filteredShots;
+    // Pre-index the excluded windows by shot, and pre-resolve which dates each
+    // shot is masked on, so the inner loop is an array lookup rather than a
+    // scan of the whole registry for every shot × date × metric.
+    const entriesByShot = new Map<string, BoostEntry[]>();
+    excludedEntries.forEach((e) => {
+      const arr = entriesByShot.get(e.shotUrl);
+      if (arr) arr.push(e);
+      else entriesByShot.set(e.shotUrl, [e]);
+    });
+
     return base.map((shot) => {
       const g = matrix.perShot.get(shot.url);
       const growth: Record<MetricKey, number> = { views: 0, likes: 0, saves: 0, comments: 0 };
+      const mine = excludeBoosted ? entriesByShot.get(shot.url) : undefined;
       if (g) {
-        rangeIdx.forEach((i) => {
-          if (i === 0) return;
-          A.METRIC_KEYS.forEach((m) => {
-            let v = g.gain[m][i];
-            if (excludeBoosted) {
-              const inWindow = excludedEntries.some(
-                (b) => b.shotUrl === shot.url && A.dateInBoostWindow(dates[i], b)
-              );
-              if (inWindow) v = 0;
-            }
-            growth[m] += v;
-          });
-        });
+        for (let k = 0; k < rangeIdx.length; k++) {
+          const i = rangeIdx[k];
+          if (i === 0) continue;
+          if (mine && mine.some((b) => A.dateInBoostWindow(dates[i], b))) continue;
+          growth.views += g.gain.views[i];
+          growth.likes += g.gain.likes[i];
+          growth.saves += g.gain.saves[i];
+          growth.comments += g.gain.comments[i];
+        }
       }
       const totalsRec: Record<MetricKey, number> = {
         views: shot.views || 0,
@@ -662,7 +720,6 @@ export function AnalysisTab({
       a.comments += sh.comments || 0;
       a.gained += gainedByUrl.get(sh.url) || 0;
     });
-    const COLORS = SERIES;
     return Object.entries(agg)
       .map(([name, a]) => ({
         name,
@@ -671,8 +728,8 @@ export function AnalysisTab({
         engRate: a.views > 0 ? +(((a.likes + a.saves + a.comments) / a.views) * 100).toFixed(2) : 0,
       }))
       .sort((x, y) => y.views - x.views)
-      .map((r, i) => ({ ...r, color: COLORS[i % COLORS.length] }));
-  }, [filteredShots, projectMap, shotGrowthList]);
+      .map((r, i) => ({ ...r, color: collectionColors.get(r.name) || SERIES[i % SERIES.length] }));
+  }, [filteredShots, projectMap, shotGrowthList, collectionColors]);
 
   const maxProjGained = Math.max(1, ...projectRows.map((r) => r.gained));
   /** quadrant reference lines for the project matrix */
@@ -688,14 +745,22 @@ export function AnalysisTab({
     const names = projectRows.slice(0, 6).map((r) => r.name);
     const colorMap: Record<string, string> = {};
     projectRows.forEach((r) => (colorMap[r.name] = r.color));
+    // Pre-bucket the shots by project once, then read the shared frame — the
+    // previous version re-aligned every shot inside the date loop.
+    const nameSet = new Set(names);
+    const members: { url: string; proj: string }[] = [];
+    filteredShots.forEach((shot) => {
+      const proj = projectMap.get(shot.url) || 'Unassigned';
+      if (nameSet.has(proj)) members.push({ url: shot.url, proj });
+    });
+
     const rows = rangeIdx.map((i) => {
       const row: any = { name: fmtDateLabel(dates[i]) };
       names.forEach((n) => (row[n] = 0));
-      filteredShots.forEach((shot) => {
-        const proj = projectMap.get(shot.url) || 'Other';
-        if (!names.includes(proj)) return;
-        const aligned = A.alignShot(shot, dates)[i];
-        if (aligned) row[proj] += aligned.views;
+      members.forEach(({ url, proj }) => {
+        const aligned = frame.aligned.get(url);
+        const point = aligned ? aligned[i] : null;
+        if (point) row[proj] += point.views;
       });
       // Share mode answers "is the balance shifting?" — with raw cumulative
       // totals every band just grows in parallel and the answer is invisible.
@@ -710,7 +775,7 @@ export function AnalysisTab({
       names,
       colorMap,
     };
-  }, [rangeIdx, dates, filteredShots, projectMap, projectRows]);
+  }, [rangeIdx, dates, filteredShots, projectMap, projectRows, frame]);
 
   // ----- Posting cadence vs performance (restored) -----
   const postingCadence = useMemo(() => {
@@ -844,6 +909,27 @@ export function AnalysisTab({
     return rows;
   }, [rangeIdx, dates, attribution]);
 
+  // ----- Growth contribution: who produced the range's new views -----
+  // Top Shots ranks by size; this answers the different question of what SHARE
+  // of the period's growth each shot was responsible for, and how much of it
+  // came from the long tail rather than the headline names.
+  const contribution = useMemo(() => {
+    const rows = shotGrowthList
+      .map((x) => ({ shot: x.shot, gained: x.growth[contribMetric] }))
+      .filter((r) => r.gained > 0)
+      .sort((a, b) => b.gained - a.gained);
+    const total = rows.reduce((a, r) => a + r.gained, 0);
+    const top = rows.slice(0, 6);
+    const topSum = top.reduce((a, r) => a + r.gained, 0);
+    return {
+      total,
+      top: top.map((r) => ({ ...r, share: total > 0 ? (r.gained / total) * 100 : 0 })),
+      restShare: total > 0 ? ((total - topSum) / total) * 100 : 0,
+      restCount: Math.max(0, rows.length - top.length),
+      max: top.length ? top[0].gained : 1,
+    };
+  }, [shotGrowthList, contribMetric]);
+
   // ----- Shot lifecycle: average daily views by shot age -----
   // Answers "how long does a shot keep earning?" by aligning every shot on its
   // own publish date rather than the calendar.
@@ -858,6 +944,20 @@ export function AnalysisTab({
     ];
     const acc = buckets.map((b) => ({ ...b, views: 0, days: 0, shots: new Set<string>() }));
 
+    const entriesByShot = new Map<string, BoostEntry[]>();
+    if (excludeBoosted) {
+      excludedEntries.forEach((e) => {
+        const arr = entriesByShot.get(e.shotUrl);
+        if (arr) arr.push(e);
+        else entriesByShot.set(e.shotUrl, [e]);
+      });
+    }
+    // day-index → bucket, resolved once instead of a linear find per shot-day
+    const bucketOfAge = (age: number) => {
+      for (let k = 0; k < acc.length; k++) if (age >= acc[k].from && age <= acc[k].to) return acc[k];
+      return null;
+    };
+
     filteredShots.forEach((shot) => {
       if (!shot.posted) return;
       const pd = new Date(shot.posted);
@@ -865,21 +965,19 @@ export function AnalysisTab({
       const postedIso = pd.toISOString().split('T')[0];
       const g = matrix.perShot.get(shot.url);
       if (!g) return;
-      dates.forEach((d, i) => {
-        if (i === 0 || matrix.excluded[i]) return;
-        const age = A.daysBetween(postedIso, d);
-        if (age < 0) return;
-        const b = acc.find((x) => age >= x.from && age <= x.to);
-        if (!b) return;
-        let v = g.gain.views[i];
-        if (excludeBoosted) {
-          const inWin = excludedEntries.some((e) => e.shotUrl === shot.url && A.dateInBoostWindow(d, e));
-          if (inWin) return;
-        }
-        b.views += v;
+      const mine = entriesByShot.get(shot.url);
+      const baseAge = A.daysBetween(postedIso, dates[0]);
+      for (let i = 1; i < dates.length; i++) {
+        if (matrix.excluded[i]) continue;
+        const age = baseAge + i;
+        if (age < 0) continue;
+        const b = bucketOfAge(age);
+        if (!b) continue;
+        if (mine && mine.some((e) => A.dateInBoostWindow(dates[i], e))) continue;
+        b.views += g.gain.views[i];
         b.days += 1;
         b.shots.add(shot.url);
-      });
+      }
     });
 
     return acc.map((b) => ({
@@ -899,20 +997,29 @@ export function AnalysisTab({
     const older = usable.slice(0, mid);
     const recent = usable.slice(mid);
 
+    const entriesByShot = new Map<string, BoostEntry[]>();
+    if (excludeBoosted) {
+      excludedEntries.forEach((e) => {
+        const arr = entriesByShot.get(e.shotUrl);
+        if (arr) arr.push(e);
+        else entriesByShot.set(e.shotUrl, [e]);
+      });
+    }
+
     const rows = filteredShots
       .map((shot) => {
         const g = matrix.perShot.get(shot.url);
         if (!g) return null;
-        const sum = (idxs: number[]) =>
-          idxs.reduce((a, i) => {
-            if (excludeBoosted) {
-              const inWin = excludedEntries.some(
-                (e) => e.shotUrl === shot.url && A.dateInBoostWindow(dates[i], e)
-              );
-              if (inWin) return a;
-            }
-            return a + g.gain.views[i];
-          }, 0);
+        const mine = entriesByShot.get(shot.url);
+        const sum = (idxs: number[]) => {
+          let a = 0;
+          for (let k = 0; k < idxs.length; k++) {
+            const i = idxs[k];
+            if (mine && mine.some((e) => A.dateInBoostWindow(dates[i], e))) continue;
+            a += g.gain.views[i];
+          }
+          return a;
+        };
         const prev = sum(older);
         const now = sum(recent);
         const prevRate = older.length ? prev / older.length : 0;
@@ -929,20 +1036,19 @@ export function AnalysisTab({
 
   /** Diverging bar data: the biggest movers in each direction, on one axis. */
   const momentumBars = useMemo(() => {
-    const up = [...momentum.rows].filter((r) => r.delta > 0).sort((a, b) => b.delta - a.delta).slice(0, 6);
-    const down = [...momentum.rows].filter((r) => r.delta < 0).sort((a, b) => a.delta - b.delta).slice(0, 6);
-    return [...up, ...down.reverse()].map((r) => {
-      const t = A.shotTitle(r.shot);
-      return {
-        name: t.length > 26 ? t.slice(0, 26) + '…' : t,
-        full: t,
-        url: r.shot.url,
-        delta: +r.delta.toFixed(1),
-        prevRate: r.prevRate,
-        nowRate: r.nowRate,
-        pct: r.pct,
-      };
-    });
+    const up = [...momentum.rows].filter((r) => r.delta > 0).sort((a, b) => b.delta - a.delta).slice(0, 5);
+    const down = [...momentum.rows].filter((r) => r.delta < 0).sort((a, b) => a.delta - b.delta).slice(0, 5);
+    const rows = [...up, ...down].map((r) => ({
+      shot: r.shot,
+      title: A.shotTitle(r.shot),
+      url: r.shot.url,
+      delta: +r.delta.toFixed(1),
+      prevRate: r.prevRate,
+      nowRate: r.nowRate,
+      pct: r.pct,
+    }));
+    const scale = Math.max(1, ...rows.map((r) => Math.abs(r.delta)));
+    return { up: rows.filter((r) => r.delta > 0), down: rows.filter((r) => r.delta < 0), scale };
   }, [momentum]);
 
   /** Portfolio-level momentum: overall daily rate now vs the earlier half. */
@@ -1027,7 +1133,7 @@ export function AnalysisTab({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* Promotion exclusion: all / no paid / fully organic */}
+            {/* Promotion exclusion: category shortcut + per-campaign switches */}
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
                 Traffic <InfoTip k="excludeBoosted" />
@@ -1043,6 +1149,93 @@ export function AnalysisTab({
                   Organic
                 </SegBtn>
               </Seg>
+
+              {/* Individual campaigns */}
+              {boosts.length > 0 && (
+                <div className="relative">
+                  <button
+                    onClick={() => setPromoPanelOpen(!promoPanelOpen)}
+                    className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-[11px] font-bold border transition-all ${
+                      excludedIds.size > 0
+                        ? 'bg-pink-50 border-pink-200 text-pink-700'
+                        : 'bg-white border-slate-200 text-slate-500 hover:border-pink-200'
+                    }`}
+                    title="Exclude specific campaigns rather than a whole category"
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
+                    {excludedIds.size > 0 ? `${excludedIds.size} excluded` : 'Per campaign'}
+                  </button>
+
+                  {promoPanelOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setPromoPanelOpen(false)} />
+                      <div className="absolute z-50 right-0 mt-2 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-200/70 p-3">
+                        <div className="flex items-center justify-between mb-2 px-1">
+                          <p className="text-[11px] font-extrabold text-slate-700">Exclude individual campaigns</p>
+                          {excludedIds.size > 0 && (
+                            <button
+                              onClick={() => setExcludedIds(new Set())}
+                              className="text-[10px] font-bold text-pink-600 hover:underline"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-medium px-1 mb-2.5 leading-relaxed">
+                          Tick a campaign to remove only its gains from every chart — useful for isolating one
+                          boost instead of dropping all paid traffic.
+                        </p>
+                        <div className="max-h-64 overflow-y-auto space-y-1">
+                          {boosts.map((b) => {
+                            const forcedByMode = A.kindsToExclude(exclusion).includes(b.kind);
+                            const checked = forcedByMode || excludedIds.has(b.id);
+                            const shot = shots.find((sh) => sh.url === b.shotUrl);
+                            return (
+                              <label
+                                key={b.id}
+                                className={`flex items-center gap-2.5 px-2 py-2 rounded-xl transition-colors ${
+                                  forcedByMode ? 'opacity-50' : 'hover:bg-slate-50 cursor-pointer'
+                                }`}
+                                title={
+                                  forcedByMode
+                                    ? `Already excluded by the "${exclusion === 'paid' ? 'No paid' : 'Organic'}" setting`
+                                    : undefined
+                                }
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={forcedByMode}
+                                  onChange={() => {
+                                    const next = new Set(excludedIds);
+                                    if (next.has(b.id)) next.delete(b.id);
+                                    else next.add(b.id);
+                                    setExcludedIds(next);
+                                  }}
+                                  className="accent-pink-500 w-3.5 h-3.5 flex-shrink-0"
+                                />
+                                {b.kind === 'boost' ? (
+                                  <Zap className="w-3 h-3 text-pink-500 flex-shrink-0" />
+                                ) : (
+                                  <Star className="w-3 h-3 text-indigo-500 flex-shrink-0" />
+                                )}
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-[11px] font-bold text-slate-700 truncate leading-tight">
+                                    {shot ? A.shotTitle(shot) : b.shotUrl}
+                                  </span>
+                                  <span className="block text-[9px] font-mono font-bold text-slate-400">
+                                    {b.start} → {b.end || 'running'}
+                                  </span>
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Boost registry */}
@@ -1077,14 +1270,15 @@ export function AnalysisTab({
           </div>
         </div>
 
-        {/* Collections chips */}
+        {/* Collections — user-defined folders, never inferred from titles */}
         <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1 mr-1">
-            <Layers className="w-3.5 h-3.5" /> Collections <InfoTip k="collections" />
+            <Folder className="w-3.5 h-3.5" /> Collections <InfoTip k="collections" />
           </span>
+
           <button
             onClick={() => setCollection('all')}
-            className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${
+            className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all flex items-center gap-1 ${
               collection === 'all'
                 ? 'bg-slate-800 text-white border-slate-800'
                 : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
@@ -1092,33 +1286,52 @@ export function AnalysisTab({
           >
             All ({shots.length})
           </button>
-          {projectCounts.map(([name, count]) => (
+
+          {collectionCounts.map((c) => {
+            const on = collection === `col:${c.id}`;
+            return (
+              <button
+                key={c.id}
+                onClick={() => setCollection(on ? 'all' : `col:${c.id}`)}
+                className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all flex items-center gap-1.5 ${
+                  on ? 'text-white shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                }`}
+                style={on ? { background: c.color, borderColor: c.color } : undefined}
+              >
+                <Folder className="w-3 h-3" style={on ? undefined : { color: c.color }} />
+                {c.name} ({c.count})
+              </button>
+            );
+          })}
+
+          {unassignedCount > 0 && collections.length > 0 && (
             <button
-              key={name}
-              onClick={() => setCollection(collection === `proj:${name}` ? 'all' : `proj:${name}`)}
-              className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${
-                collection === `proj:${name}`
-                  ? 'bg-pink-500 text-white border-pink-500 shadow-sm shadow-pink-200'
-                  : 'bg-white text-slate-500 border-slate-200 hover:border-pink-200'
+              onClick={() => setCollection(collection === 'unassigned' ? 'all' : 'unassigned')}
+              title="Shots that are not in any collection yet"
+              className={`px-2.5 py-1 rounded-full text-[10px] font-bold border border-dashed transition-all flex items-center gap-1.5 ${
+                collection === 'unassigned'
+                  ? 'bg-slate-500 text-white border-slate-500'
+                  : 'bg-white text-slate-400 border-slate-300 hover:border-slate-400'
               }`}
             >
-              {name} ({count})
+              Unassigned ({unassignedCount})
             </button>
-          ))}
-          {keywordCollections.map(({ keyword, count }) => (
-            <button
-              key={keyword}
-              onClick={() => setCollection(collection === `kw:${keyword}` ? 'all' : `kw:${keyword}`)}
-              className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${
-                collection === `kw:${keyword}`
-                  ? 'bg-violet-500 text-white border-violet-500 shadow-sm shadow-violet-200'
-                  : 'bg-white text-violet-500 border-violet-200 hover:border-violet-300'
-              }`}
-              title={`Every shot whose title contains “${keyword}”`}
-            >
-              “{keyword}” ({count})
-            </button>
-          ))}
+          )}
+
+          {/* Always offer the way to manage them */}
+          <button
+            onClick={() => onOpenCollections?.()}
+            className="px-2.5 py-1 rounded-full text-[10px] font-bold border border-dashed border-pink-200 text-pink-600 bg-pink-50/50 hover:bg-pink-50 transition-all flex items-center gap-1.5"
+          >
+            <FolderPlus className="w-3 h-3" />
+            {collections.length === 0 ? 'Create collections' : 'Manage'}
+          </button>
+
+          {collectionsLoaded && collections.length === 0 && (
+            <span className="text-[10px] font-semibold text-slate-400 ml-1">
+              No collections yet — project charts stay empty until you group your shots.
+            </span>
+          )}
         </div>
       </div>
 
@@ -1145,6 +1358,8 @@ export function AnalysisTab({
       )}
 
       {/* ===================== KPI ROW ===================== */}
+      {collections.length > 0 && (
+        <>
       <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {kpis.map(({ metric, gained, pct }) => {
           const meta = METRIC_META[metric];
@@ -1454,9 +1669,108 @@ export function AnalysisTab({
       {/* ————— MOMENTUM & PACE ————— */}
       <div className="pt-2">
         <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.14em]">Momentum & pace</h2>
-        <p className="text-[11px] text-slate-400 font-medium mt-0.5">Whether growth is speeding up or slowing down, overall and shot by shot</p>
+        <p className="text-[11px] text-slate-400 font-medium mt-0.5">Which shots produced the growth, and which are speeding up or slowing down</p>
         <div className="h-px bg-gradient-to-r from-slate-200 to-transparent mt-2.5" />
       </div>
+
+      {/* ===================== GROWTH CONTRIBUTION ===================== */}
+      <section className="grid grid-cols-1 gap-6">
+        <div className={`${CARD} p-6`}>
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
+            <div>
+              <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+                <Layers className="w-4 h-4 text-slate-400" />
+                Where the Growth Came From <InfoTip k="contribution" />
+              </h3>
+              <p className="text-xs text-slate-400 font-medium mt-0.5">
+                Which shots produced the new {METRIC_META[contribMetric].label.toLowerCase()} in the {rangeLabel}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-black text-blue-600 bg-blue-50 border border-blue-100 px-2.5 py-1.5 rounded-lg font-mono">
+                +{contribution.total.toLocaleString()} total
+              </span>
+              <Seg>
+                {A.METRIC_KEYS.map((m) => (
+                  <SegBtn key={m} active={contribMetric === m} onClick={() => setContribMetric(m)}>
+                    {METRIC_META[m].label}
+                  </SegBtn>
+                ))}
+              </Seg>
+            </div>
+          </div>
+
+          {contribution.total === 0 ? (
+            <p className="text-xs text-slate-400 font-medium py-12 text-center">
+              No {METRIC_META[contribMetric].label.toLowerCase()} were gained in this range.
+            </p>
+          ) : (
+            <>
+              <div className="space-y-3.5">
+                {contribution.top.map((r, i) => (
+                  <a
+                    key={r.shot.url}
+                    href={r.shot.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-3 group"
+                  >
+                    <span className="text-[11px] font-black text-slate-300 w-4 flex-shrink-0 text-center">
+                      {i + 1}
+                    </span>
+                    {r.shot.imageUrl ? (
+                      <img
+                        key={r.shot.imageUrl}
+                            src={r.shot.imageUrl}
+                        alt=""
+                        referrerPolicy="no-referrer"
+                        loading="lazy"
+                        className="rounded-lg object-cover border border-slate-200 flex-shrink-0 shadow-sm group-hover:border-pink-200 transition-all"
+                        style={{ width: 56, height: 42 }}
+                      />
+                    ) : (
+                      <span className="rounded-lg bg-slate-200 flex-shrink-0" style={{ width: 56, height: 42 }} />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <p className="text-[11px] font-bold text-slate-700 truncate group-hover:text-pink-600 transition-colors">
+                          {A.shotTitle(r.shot)}
+                        </p>
+                        <span className="text-[11px] font-mono font-black text-slate-700 whitespace-nowrap flex-shrink-0">
+                          +{r.gained.toLocaleString()}
+                          <span className="text-slate-400 font-bold ml-1.5">({r.share.toFixed(1)}%)</span>
+                        </span>
+                      </div>
+                      <div className="stat-line mt-1.5">
+                        <div
+                          className="stat-progress"
+                          style={{
+                            width: `${(r.gained / contribution.max) * 100}%`,
+                            background: `linear-gradient(90deg, ${C.likes}, ${C.saves})`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </a>
+                ))}
+              </div>
+
+              {contribution.restCount > 0 && (
+                <p className="text-[10px] text-slate-400 font-semibold mt-4 pt-3 border-t border-slate-100">
+                  The remaining {contribution.restCount} shot{contribution.restCount === 1 ? '' : 's'} contributed{' '}
+                  <span className="font-black text-slate-500">{contribution.restShare.toFixed(1)}%</span> of the
+                  growth
+                  {contribution.restShare >= 50
+                    ? ' — the long tail is doing most of the work, which is a healthy sign.'
+                    : contribution.restShare < 25
+                    ? ' — growth is concentrated in a few shots, so the period is fragile.'
+                    : '.'}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </section>
 
       {/* ===================== MOMENTUM ===================== */}
       <div className={`${CARD} p-6`}>
@@ -1519,76 +1833,112 @@ export function AnalysisTab({
           <p className="text-xs text-slate-400 font-medium py-14 text-center">
             Select a wider range (at least 4 usable days) to compare momentum.
           </p>
-        ) : momentumBars.length === 0 ? (
+        ) : momentumBars.up.length === 0 && momentumBars.down.length === 0 ? (
           <p className="text-xs text-slate-400 font-medium py-14 text-center">
             No shot changed pace between the two halves of this range.
           </p>
         ) : (
-          <div style={{ height: Math.max(220, momentumBars.length * 30 + 30) }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={momentumBars} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={C.grid} horizontal={false} />
-                <XAxis
-                  type="number"
-                  tick={{ fontSize: 10, fill: C.muted, fontWeight: 600 }}
-                  tickLine={false}
-                  axisLine={{ stroke: C.axis }}
-                  tickFormatter={(v: number) => (v > 0 ? `+${compact(v)}` : compact(v))}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  width={165}
-                  tick={{ fontSize: 10, fill: C.label, fontWeight: 700 }}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <ReferenceLine x={0} stroke="#CBD5E1" strokeWidth={1.5} />
-                <Tooltip
-                  cursor={{ fill: '#F8FAFC' }}
-                  content={({ payload }: any) => {
-                    const d = payload && payload[0] && payload[0].payload;
-                    if (!d) return null;
-                    return (
-                      <div style={chartTooltipStyle as any} className="p-2.5 max-w-[250px]">
-                        <p className="font-extrabold text-slate-800 text-[11px] leading-snug">{d.full}</p>
-                        <p className="text-[10px] text-slate-500 font-semibold mt-1">
-                          {d.prevRate} → <span className="text-slate-800 font-bold">{d.nowRate}</span> views/day
-                        </p>
-                        <p
-                          className={`text-[10px] font-bold ${
-                            d.delta >= 0 ? 'text-emerald-600' : 'text-red-500'
-                          }`}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {(
+              [
+                { key: 'up', label: 'Gaining pace', rows: momentumBars.up, color: C.organic, Icon: TrendingUp },
+                { key: 'down', label: 'Losing pace', rows: momentumBars.down, color: '#F87171', Icon: TrendingDown },
+              ] as const
+            ).map(({ key, label, rows, color, Icon }) => (
+              <div key={key} className="border border-slate-100 rounded-2xl p-5 bg-slate-50/40">
+                <p
+                  className="text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 mb-4"
+                  style={{ color }}
+                >
+                  <Icon className="w-3.5 h-3.5" /> {label}
+                </p>
+
+                {rows.length === 0 ? (
+                  <p className="text-[11px] text-slate-400 font-semibold py-6 text-center">
+                    Nothing in this direction.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {rows.map((r, i) => (
+                      <a
+                        key={r.url}
+                        href={r.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-3 group"
+                      >
+                        <span className="text-[11px] font-black text-slate-300 w-4 flex-shrink-0 text-center">
+                          {i + 1}
+                        </span>
+                        {r.shot.imageUrl ? (
+                          <img
+                            key={r.shot.imageUrl}
+                            src={r.shot.imageUrl}
+                            alt=""
+                            referrerPolicy="no-referrer"
+                            loading="lazy"
+                            className="rounded-lg object-cover border border-slate-200 flex-shrink-0 shadow-sm group-hover:border-pink-200 transition-all"
+                            style={{ width: 56, height: 42 }}
+                          />
+                        ) : (
+                          <span
+                            className="rounded-lg bg-slate-200 flex-shrink-0"
+                            style={{ width: 56, height: 42 }}
+                          />
+                        )}
+
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-bold text-slate-700 truncate group-hover:text-pink-600 transition-colors leading-tight">
+                            {r.title}
+                          </p>
+                          {/* before → after, then the magnitude bar */}
+                          <p className="text-[10px] font-mono font-bold text-slate-400 mt-0.5">
+                            {r.prevRate}
+                            <span className="text-slate-300 mx-1">→</span>
+                            <span className="text-slate-700">{r.nowRate}</span>
+                            <span className="text-slate-300"> views/day</span>
+                            <span className="text-slate-300 mx-1">·</span>
+                            <span className="text-slate-400">{compact(r.shot.views || 0)} total</span>
+                          </p>
+                          <div className="stat-line mt-1.5">
+                            <div
+                              className="stat-progress"
+                              style={{
+                                width: `${(Math.abs(r.delta) / momentumBars.scale) * 100}%`,
+                                background: color,
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <span
+                          className="text-[11px] font-mono font-black whitespace-nowrap flex-shrink-0 self-center"
+                          style={{ color }}
                         >
-                          {d.delta >= 0 ? '+' : ''}
-                          {d.delta}/day
-                          {d.pct !== null && ` (${d.pct >= 0 ? '+' : ''}${d.pct.toFixed(0)}%)`}
-                        </p>
-                      </div>
-                    );
-                  }}
-                />
-                <Bar dataKey="delta" radius={[4, 4, 4, 4]} maxBarSize={16} isAnimationActive={false}>
-                  {momentumBars.map((d) => (
-                    <Cell key={d.url} fill={d.delta >= 0 ? C.organic : '#F87171'} fillOpacity={0.9} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+                          {r.delta > 0 ? '+' : ''}
+                          {r.delta}
+                          {r.pct !== null && (
+                            <span className="block text-[9px] font-bold text-slate-400 text-right">
+                              {r.pct >= 0 ? '+' : ''}
+                              {r.pct.toFixed(0)}%
+                            </span>
+                          )}
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
 
-        <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center gap-x-5 gap-y-1.5">
-          <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
-            <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /> gaining pace
-          </span>
-          <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
-            <span className="w-2.5 h-2.5 rounded-sm bg-red-400" /> losing pace
-          </span>
-          <span className="text-[10px] text-slate-400 font-semibold ml-auto">
-            Change in average views earned per day between the two halves of the range
-          </span>
-        </div>
+        <p className="text-[10px] text-slate-400 font-semibold mt-3 pt-3 border-t border-slate-100 leading-relaxed">
+          Each row shows a shot&rsquo;s average views per day before and after the midpoint of the range; the bar is
+          the size of that change and the percentage is it relative to its own earlier pace. Older shots naturally
+          lose pace as launch attention fades — a <span className="font-black">new</span> shot losing pace is the
+          signal worth acting on.
+        </p>
       </div>
 
       {/* ————— TIMING & RHYTHM ————— */}
@@ -1920,7 +2270,7 @@ export function AnalysisTab({
             Shot Lifecycle <InfoTip k="lifecycle" />
           </h3>
           <p className="text-xs text-slate-400 font-medium mb-4">
-            Average views a shot earns per day, grouped by how old it was that day
+            Views a shot earns per day, grouped by how old the shot was
           </p>
           <div className="h-60">
             <ResponsiveContainer width="100%" height="100%">
@@ -1969,7 +2319,7 @@ export function AnalysisTab({
               Tag Performance Matrix <InfoTip k="tagMatrix" />
             </h3>
             <p className="text-xs text-slate-400 font-medium mt-0.5">
-              Reach (avg views/shot) × conversion (likes per 100 views) · bubble = shots using the tag
+              Reach (average views per shot) vs response (likes per 100 views) · bubble size = shots using the tag
             </p>
           </div>
 
@@ -2072,7 +2422,7 @@ export function AnalysisTab({
               Shot Performance Matrix <InfoTip k="shotMatrix" />
             </h3>
             <p className="text-xs text-slate-400 font-medium mt-0.5">
-              Every shot plotted by reach and response — outliers above the crowd are the viral ones
+              Every shot by views against likes — points high above the cloud punched above their weight
             </p>
           </div>
           <Seg>
@@ -2143,21 +2493,35 @@ export function AnalysisTab({
       </div>
       </section>
 
-      {/* ————— PROJECTS & CLIENTS ————— */}
+      {/* ————— COLLECTIONS ————— */}
       <div className="pt-2">
-        <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.14em]">Projects & clients</h2>
-        <p className="text-[11px] text-slate-400 font-medium mt-0.5">How each client project performs and how much of the portfolio it carries</p>
+        <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.14em]">Collections</h2>
+        <p className="text-[11px] text-slate-400 font-medium mt-0.5">How each collection performs and how much of the account it carries</p>
         <div className="h-px bg-gradient-to-r from-slate-200 to-transparent mt-2.5" />
       </div>
+
+      {collectionsLoaded && collections.length === 0 && (
+        <div className={`${CARD} p-8 text-center`}>
+          <Folder className="w-7 h-7 text-slate-300 mx-auto mb-2.5" />
+          <p className="text-sm font-extrabold text-slate-700">Collection charts need collections</p>
+          <p className="text-xs text-slate-400 font-medium mt-1.5 max-w-lg mx-auto leading-relaxed">
+            Shots are not grouped yet. Rather than guessing project membership from title text — which silently
+            mis-files anything off-convention — these charts stay empty until you define the grouping yourself.
+          </p>
+          <button onClick={() => onOpenCollections?.()} className={`${BTN_PRIMARY} mx-auto mt-4`}>
+            <FolderPlus className="w-3.5 h-3.5" /> Set up collections
+          </button>
+        </div>
+      )}
 
       <section className="grid grid-cols-1 gap-6">
         <div className={`${CARD} p-6 xl:col-span-2`}>
           <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5 mb-1">
             <Layers className="w-4 h-4 text-slate-400" />
-            Project Performance Matrix <InfoTip k="projectMatrix" />
+            Collection Performance <InfoTip k="projectMatrix" />
           </h3>
           <p className="text-xs text-slate-400 font-medium mb-4">
-            Each bubble is a client project · X: avg views per shot · Y: engagement rate · size: number of shots
+            Each bubble is a collection · across: average views per shot · up: engagement rate · size: number of shots
           </p>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
@@ -2234,7 +2598,7 @@ export function AnalysisTab({
           <div>
             <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
               <Layers className="w-4 h-4 text-slate-400" />
-              Views Composition by Project <InfoTip k="projectStack" />
+              Views Split by Collection <InfoTip k="projectStack" />
             </h3>
             <p className="text-xs text-slate-400 font-medium mt-0.5">
               {stackMode === 'share'
@@ -2320,16 +2684,16 @@ export function AnalysisTab({
         <div className={`${CARD} p-6 xl:col-span-2`}>
           <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5 mb-1">
             <Layers className="w-4 h-4 text-slate-400" />
-            Project Performance <InfoTip k="projects" />
+            Collection Breakdown <InfoTip k="projects" />
           </h3>
           <p className="text-xs text-slate-400 font-medium mb-4">
-            Clients/projects parsed from shot titles · &ldquo;Gained&rdquo; = views earned in {rangeLabel}
+            Your collections · &ldquo;Gained&rdquo; = views earned in the {rangeLabel}
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="text-slate-400 font-bold text-[10px] uppercase tracking-wider font-mono border-b border-slate-100">
                 <tr>
-                  <th className="py-2.5 pr-3">Project</th>
+                  <th className="py-2.5 pr-3">Collection</th>
                   <th className="py-2.5 px-3 text-center">Shots</th>
                   <th className="py-2.5 px-3 text-right">Views</th>
                   <th className="py-2.5 px-3 text-right">Avg / shot</th>
@@ -2371,6 +2735,8 @@ export function AnalysisTab({
           </div>
         </div>
       </section>
+        </>
+      )}
 
       {/* ————— PORTFOLIO SHAPE ————— */}
       <div className="pt-2">
@@ -2388,7 +2754,7 @@ export function AnalysisTab({
                 Portfolio Concentration <InfoTip k="concentration" />
               </h3>
               <p className="text-xs text-slate-400 font-medium mt-0.5">
-                Share of total views delivered by the top X% of shots
+                How much of your total views a few shots account for
                 {paretoOrganic && pareto.hasBoosts && ' · promoted shots excluded'}
               </p>
             </div>
@@ -2404,30 +2770,39 @@ export function AnalysisTab({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3 my-4">
-            <div className="bg-slate-50 border border-slate-100 rounded-xl p-3">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Top 3 shots deliver</p>
-              <p className="text-xl font-black text-slate-800 font-mono mt-0.5">{activePareto.top3.toFixed(1)}%</p>
-              {pareto.hasBoosts && (
-                <p className="text-[10px] font-semibold text-slate-400 mt-0.5">
-                  organic: <span className="font-mono text-slate-600">{pareto.organic.top3.toFixed(1)}%</span>
-                  {Math.abs(paretoDelta) >= 0.1 && (
-                    <span className={`ml-1 font-mono ${paretoDelta > 0 ? 'text-pink-500' : 'text-emerald-600'}`}>
-                      ({paretoDelta > 0 ? '+' : ''}{paretoDelta.toFixed(1)} from promotion)
-                    </span>
-                  )}
-                </p>
-              )}
-            </div>
-            <div className="bg-slate-50 border border-slate-100 rounded-xl p-3">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Top 10 shots deliver</p>
-              <p className="text-xl font-black text-slate-800 font-mono mt-0.5">{activePareto.top10.toFixed(1)}%</p>
-              {pareto.hasBoosts && (
-                <p className="text-[10px] font-semibold text-slate-400 mt-0.5">
-                  organic: <span className="font-mono text-slate-600">{pareto.organic.top10.toFixed(1)}%</span>
-                </p>
-              )}
-            </div>
+          {/* Instantly-readable shares, before the curve explains the shape */}
+          <div className="space-y-2.5 my-4">
+            {[
+              { label: 'Top 3 shots', value: activePareto.top3, color: C.likes },
+              { label: 'Top 10 shots', value: activePareto.top10, color: C.saves },
+              {
+                label: `All other shots (${Math.max(0, activePareto.n - 10)})`,
+                value: Math.max(0, 100 - activePareto.top10),
+                color: '#94A3B8',
+              },
+            ].map((row) => (
+              <div key={row.label}>
+                <div className="flex items-baseline justify-between mb-1">
+                  <span className="text-[11px] font-bold text-slate-600">{row.label}</span>
+                  <span className="text-[11px] font-mono font-black" style={{ color: row.color }}>
+                    {row.value.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="stat-line">
+                  <div className="stat-progress" style={{ width: `${row.value}%`, background: row.color }} />
+                </div>
+              </div>
+            ))}
+            {pareto.hasBoosts && Math.abs(paretoDelta) >= 0.1 && (
+              <p className="text-[10px] font-semibold text-slate-400 pt-1">
+                Without promoted shots the top 3 hold{' '}
+                <span className="font-mono text-slate-600">{pareto.organic.top3.toFixed(1)}%</span>
+                <span className={`ml-1 font-mono ${paretoDelta > 0 ? 'text-pink-500' : 'text-emerald-600'}`}>
+                  ({paretoDelta > 0 ? '+' : ''}
+                  {paretoDelta.toFixed(1)} pts from promotion)
+                </span>
+              </p>
+            )}
           </div>
 
           <div className="h-60">
@@ -2463,9 +2838,16 @@ export function AnalysisTab({
               </AreaChart>
             </ResponsiveContainer>
           </div>
-          <p className="text-[10px] text-slate-400 font-semibold mt-2.5">
-            The dashed diagonal = perfectly even distribution. The further the pink curve bows toward the top-left,
-            the more the portfolio depends on a few hero shots.
+          <p className="text-[10px] text-slate-400 font-semibold mt-2.5 leading-relaxed">
+            The dashed diagonal = perfectly even distribution; the further the pink curve bows toward the top-left,
+            the more the portfolio leans on a few hero shots.{' '}
+            <span className="font-black text-slate-500">
+              {activePareto.top3 >= 50
+                ? 'Concentrated: a handful of shots carry most of the reach, so the portfolio is fragile.'
+                : activePareto.top3 >= 30
+                ? 'Moderately concentrated: a few strong shots lead, with a meaningful tail behind them.'
+                : 'Healthy spread: reach is distributed across the portfolio rather than depending on a few hits.'}
+            </span>
           </p>
         </div>
 
@@ -2537,6 +2919,13 @@ export function AnalysisTab({
                   </span>
                 </div>
               </div>
+
+              {mixScope === 'range' && totalInteractions < 100 && (
+                <p className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 mt-3 leading-snug">
+                  Only {totalInteractions} interaction{totalInteractions === 1 ? '' : 's'} in this window — the split
+                  is directional, not statistical. Switch to All-time for the settled picture.
+                </p>
+              )}
 
               <div className="mt-4 space-y-2">
                 {engagementMix.map((e) => {
@@ -2628,6 +3017,7 @@ export function AnalysisTab({
                         </span>
                         {x.shot.imageUrl ? (
                           <img
+                            key={x.shot.imageUrl}
                             src={x.shot.imageUrl}
                             alt=""
                             referrerPolicy="no-referrer"

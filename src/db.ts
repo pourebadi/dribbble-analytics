@@ -416,6 +416,52 @@ export function writeBoosts(list: any[]): BoostRecord[] {
   return clean;
 }
 
+// ---------------------------------------------------------------------------
+// Collections (data/collections.json)
+// ---------------------------------------------------------------------------
+// User-defined grouping of shots into projects. Replaces the old title-parsing
+// heuristic, which silently mis-filed anything off-convention.
+export const COLLECTIONS_PATH = path.join(DATA_DIR, 'collections.json');
+
+export interface CollectionRecord {
+  id: string;
+  name: string;
+  color: string;
+  shotUrls: string[];
+  note: string;
+}
+
+function sanitizeCollection(v: any, i: number): CollectionRecord | null {
+  if (!v || typeof v.name !== 'string' || !v.name.trim()) return null;
+  const palette = ['#EA4C89', '#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#06B6D4', '#F472B6', '#94A3B8'];
+  return {
+    id: typeof v.id === 'string' && v.id ? v.id : `c_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+    name: v.name.trim().slice(0, 60),
+    color: typeof v.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(v.color) ? v.color : palette[i % palette.length],
+    shotUrls: Array.isArray(v.shotUrls) ? v.shotUrls.filter((u: any) => typeof u === 'string') : [],
+    note: typeof v.note === 'string' ? v.note : '',
+  };
+}
+
+export function readCollections(): CollectionRecord[] {
+  try {
+    if (!fs.existsSync(COLLECTIONS_PATH)) return [];
+    const parsed = JSON.parse(fs.readFileSync(COLLECTIONS_PATH, 'utf-8'));
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(sanitizeCollection).filter((c): c is CollectionRecord => c !== null);
+  } catch {
+    return [];
+  }
+}
+
+export function writeCollections(list: any[]): CollectionRecord[] {
+  const clean = (Array.isArray(list) ? list : [])
+    .map(sanitizeCollection)
+    .filter((c): c is CollectionRecord => c !== null);
+  fs.writeFileSync(COLLECTIONS_PATH, JSON.stringify(clean, null, 2) + '\n', 'utf-8');
+  return clean;
+}
+
 /**
  * Self-healing restore: merges data from the committed JSON snapshots
  * (data/shots.json) into the DB WITHOUT overwriting anything the DB already

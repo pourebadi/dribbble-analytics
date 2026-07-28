@@ -3,10 +3,12 @@ import { Shot, Profile } from '../types.ts';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { AnalysisTab } from './AnalysisTab.tsx';
 import { PromotionsPage } from './PromotionsPage.tsx';
+import { CollectionsPage } from './CollectionsPage.tsx';
 import { HistoryTab } from './HistoryTab.tsx';
 import { InfoTip } from './InfoTip.tsx';
 import { ShotPicker } from './ShotPicker.tsx';
 import { C, compact, tooltipStyle, tooltipLabelStyle } from '../chartTheme.ts';
+import { INPUT_WITH_ICON, SELECT_WITH_ICON, BTN_GHOST } from '../formStyles.ts';
 import { 
   Eye, 
   Heart, 
@@ -38,8 +40,8 @@ export function DashboardStats({
 }: { 
   shots: Shot[]; 
   activeProfile: Profile | null; 
-  activeTab: 'dashboard' | 'analysis' | 'history' | 'promotions';
-  onNavigate?: (tab: 'dashboard' | 'analysis' | 'history' | 'promotions') => void;
+  activeTab: 'dashboard' | 'analysis' | 'history' | 'promotions' | 'collections';
+  onNavigate?: (tab: 'dashboard' | 'analysis' | 'history' | 'promotions' | 'collections') => void;
   profileManager?: React.ReactNode;
 }) {
   
@@ -315,6 +317,7 @@ export function DashboardStats({
         shots={validShots}
         profile={activeProfile}
         onOpenPromotions={() => onNavigate?.('promotions')}
+        onOpenCollections={() => onNavigate?.('collections')}
       />
     );
   }
@@ -325,6 +328,10 @@ export function DashboardStats({
 
   if (activeTab === 'promotions') {
     return <PromotionsPage shots={shots} />;
+  }
+
+  if (activeTab === 'collections') {
+    return <CollectionsPage shots={shots} />;
   }
 
   // Otherwise, render default Dashboard Tab
@@ -511,7 +518,7 @@ export function DashboardStats({
                       
                       value={searchQuery}
                       onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                      className="pl-9 pr-4 py-2 w-full sm:w-64 text-xs bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-pink-200 focus:border-pink-400 transition-all text-slate-700"
+                      className={`${INPUT_WITH_ICON} sm:w-64`}
                     />
                     {searchQuery && (
                       <button 
@@ -531,7 +538,7 @@ export function DashboardStats({
                         value={selectedTag || ''}
                         title="Show only shots carrying this tag."
                         onChange={(e) => { setSelectedTag(e.target.value || null); setCurrentPage(1); }}
-                        className="pl-8 pr-8 py-2 w-full sm:w-48 text-xs bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-pink-200 focus:border-pink-400 appearance-none transition-all text-slate-700 font-semibold cursor-pointer"
+                        className={`${SELECT_WITH_ICON} sm:w-48`}
                       >
                         <option value="">All Tags / Niches</option>
                         {allTags.map(tag => (
@@ -550,7 +557,7 @@ export function DashboardStats({
                         setQuickFindUrl('');
                       }}
                       title="Reset search, tag filter, quick find and sorting back to defaults."
-                      className="px-4 py-2 text-xs font-semibold border border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-1.5 transition-all"
+                      className={BTN_GHOST}
                     >
                       <X className="w-3.5 h-3.5" />
                       Clear Filters

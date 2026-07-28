@@ -88,6 +88,28 @@ async function startServer() {
     }
   });
 
+  // --- Collections (data/collections.json) ---------------------------------
+  app.get('/api/collections', (req, res) => {
+    try {
+      res.json(dbLayer.readCollections());
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/collections', (req, res) => {
+    const { collections } = req.body || {};
+    if (!Array.isArray(collections)) {
+      return res.status(400).json({ error: 'Body must be { collections: [...] }' });
+    }
+    try {
+      const saved = dbLayer.writeCollections(collections);
+      res.json({ success: true, count: saved.length });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get('/api/shots', (req, res) => {
     try {
       const { profileUrl } = req.query;
@@ -175,7 +197,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server running at http://localhost:${PORT}`);
   });
 }
 
