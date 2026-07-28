@@ -41,8 +41,6 @@ export const SERIES = [
   '#94A3B8',
 ];
 
-export const seriesColor = (i: number) => SERIES[i % SERIES.length];
-
 // ---------------------------------------------------------------------------
 // Recharts prop presets
 // ---------------------------------------------------------------------------
@@ -69,23 +67,6 @@ export const gridProps = {
   vertical: false,
 } as const;
 
-export const axisTick = { fontSize: 10, fill: C.muted, fontWeight: 600 } as const;
-export const axisTickBold = { fontSize: 10, fill: C.label, fontWeight: 700 } as const;
-
-export const xAxisProps = {
-  tick: axisTick,
-  tickLine: false,
-  axisLine: { stroke: C.axis },
-  interval: 'preserveStartEnd' as const,
-  minTickGap: 24,
-};
-
-export const yAxisProps = {
-  tick: axisTick,
-  tickLine: false,
-  axisLine: false as const,
-};
-
 export const legendProps = {
   wrapperStyle: { fontSize: 11, fontWeight: 700, paddingTop: 8 },
   iconType: 'circle' as const,
@@ -101,12 +82,7 @@ export const compact = (v: number): string => {
   return String(n);
 };
 
-export const fullNumber = (v: any) => Number(v).toLocaleString();
-
 // ---------------------------------------------------------------------------
 // Shared card chrome
 // ---------------------------------------------------------------------------
 export const CARD = 'bg-white border border-slate-200 rounded-2xl shadow-sm';
-export const CARD_TITLE = 'font-bold text-slate-800 text-base flex items-center gap-1.5';
-export const CARD_SUB = 'text-xs text-slate-400 font-medium mt-0.5';
-export const CARD_FOOT = 'text-[10px] text-slate-400 font-semibold mt-2.5 leading-relaxed';

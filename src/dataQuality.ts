@@ -29,9 +29,9 @@
 import { Shot } from './types.ts';
 
 /** Max acceptable spread between the first and last shot timestamp of one run. */
-export const MAX_CAPTURE_SPREAD_MIN = 90;
+const MAX_CAPTURE_SPREAD_MIN = 90;
 /** Minimum plausible window between two snapshots to call it a day. */
-export const MIN_WINDOW_HOURS = 18;
+const MIN_WINDOW_HOURS = 18;
 
 export type DayQuality = 'ok' | 'baseline' | 'staggered' | 'short-window';
 

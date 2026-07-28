@@ -50,7 +50,7 @@ export const WEEKDAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 // ---------------------------------------------------------------------------
 // History alignment
 // ---------------------------------------------------------------------------
-export function sortedHistory(shot: Shot): HistPoint[] {
+function sortedHistory(shot: Shot): HistPoint[] {
   return (Array.isArray(shot.history) ? shot.history : [])
     .filter((h: any) => h && h.date)
     .map((h: any) => ({
@@ -78,7 +78,7 @@ export function unionDates(shots: Shot[]): string[] {
  * Carry-forward alignment: for each date in `dates`, the shot's most recent
  * known snapshot up to that date (or null before its first log).
  */
-export function alignShot(shot: Shot, dates: string[]): (HistPoint | null)[] {
+function alignShot(shot: Shot, dates: string[]): (HistPoint | null)[] {
   const hist = sortedHistory(shot);
   const out: (HistPoint | null)[] = [];
   let hi = 0;
@@ -187,7 +187,7 @@ export interface ShotGains {
 }
 
 /** Gains from a pre-aligned row — the hot path when a Frame is available. */
-export function gainsFromAligned(
+function gainsFromAligned(
   url: string,
   aligned: (HistPoint | null)[] | undefined,
   dates: string[]
@@ -221,7 +221,7 @@ export function gainsFromAligned(
   return { url, raw, gain };
 }
 
-export function shotGains(shot: Shot, dates: string[]): ShotGains {
+function shotGains(shot: Shot, dates: string[]): ShotGains {
   const aligned = alignShot(shot, dates);
   const raw: Record<MetricKey, (number | null)[]> = { views: [], likes: [], saves: [], comments: [] };
   const gain: Record<MetricKey, number[]> = { views: [], likes: [], saves: [], comments: [] };
@@ -331,7 +331,7 @@ export function dateInBoostWindow(date: string, entry: BoostEntry): boolean {
   return true;
 }
 
-export function boostsForShot(url: string, boosts: BoostEntry[]): BoostEntry[] {
+function boostsForShot(url: string, boosts: BoostEntry[]): BoostEntry[] {
   return boosts.filter((b) => b.shotUrl === url);
 }
 
@@ -504,49 +504,4 @@ export function shotTitle(shot: Shot): string {
   } catch {
     return 'Untitled Dribbble Shot';
   }
-}
-
-/**
- * Project/client extraction. Titles follow the "Something | Project" pattern;
- * fall back to the repeated last-two-words heuristic for titles without a pipe.
- */
-export function buildProjectMap(shots: Shot[]): Map<string, string> {
-  const map = new Map<string, string>();
-  const words = (t: string) => t.trim().split(/\s+/);
-  const lastTwoFreq: Record<string, number> = {};
-  shots.forEach((sh) => {
-    const t = shotTitle(sh);
-    if (!t.includes('|')) {
-      const p = words(t);
-      if (p.length >= 2) {
-        const k = p.slice(-2).join(' ');
-        lastTwoFreq[k] = (lastTwoFreq[k] || 0) + 1;
-      }
-    }
-  });
-  shots.forEach((sh) => {
-    const t = shotTitle(sh);
-    if (t.includes('|')) {
-      map.set(sh.url, t.split('|').pop()!.trim() || 'Other');
-      return;
-    }
-    const p = words(t);
-    let proj = p[p.length - 1] || 'Other';
-    if (p.length >= 2) {
-      const two = p.slice(-2).join(' ');
-      if (lastTwoFreq[two] >= 2) proj = two;
-    }
-    map.set(sh.url, proj);
-  });
-  return map;
-}
-
-/** Keyword collections (e.g. every shot with "System" in its title). */
-export const KEYWORD_COLLECTIONS = ['System', '3D', 'Motion', 'Color'];
-
-export function keywordCollectionCounts(shots: Shot[]): { keyword: string; count: number }[] {
-  return KEYWORD_COLLECTIONS.map((keyword) => ({
-    keyword,
-    count: shots.filter((s) => shotTitle(s).toLowerCase().includes(keyword.toLowerCase())).length,
-  })).filter((k) => k.count >= 2);
 }

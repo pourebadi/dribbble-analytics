@@ -13,10 +13,10 @@
  */
 
 /** Uniform control height for every form element in a toolbar row. */
-export const CONTROL_H = 'h-9';
+const CONTROL_H = 'h-9';
 
 /** Base chrome shared by inputs, selects and picker triggers. */
-export const CONTROL_BASE =
+const CONTROL_BASE =
   `${CONTROL_H} text-xs bg-white border border-slate-200 rounded-xl outline-none ` +
   'transition-all text-slate-700 focus:ring-2 focus:ring-pink-200 focus:border-pink-400';
 
@@ -48,11 +48,3 @@ export const BTN_PRIMARY =
   'flex items-center gap-1.5 hover:brightness-105 transition-all shadow-sm shadow-pink-200/50 ' +
   'disabled:opacity-40 disabled:hover:brightness-100';
 
-/** Field label above a control. */
-export const FIELD_LABEL =
-  'text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1 mb-1';
-
-/** Taller variant for multi-line pickers that show a thumbnail. */
-export const PICKER_TRIGGER_TALL =
-  'h-11 w-full flex items-center gap-2.5 px-2.5 bg-white border rounded-xl ' +
-  'transition-all text-left border-slate-200 hover:border-pink-200';

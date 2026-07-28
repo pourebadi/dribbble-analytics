@@ -36,10 +36,11 @@ export const HELP: Record<string, HelpText> = {
   collectionsAssign: {
     title: 'Assigning shots',
     body:
-      'Click any shot to add or remove it from the selected collection. A coloured badge on a shot means it is ' +
-      'already in another collection — that is allowed, and charts attribute the shot to the first collection it ' +
-      'belongs to. "Suggest from titles" pre-fills collections from the "Title | Project" pattern as a starting ' +
-      'point; it is a suggestion you review and edit, not an automatic classification.',
+      'Click any shot to add or remove it. The list keeps its order while you work, so nothing moves under your ' +
+      'cursor. Use the tabs to see only what is in the collection or only what is missing, then Add all / Remove ' +
+      'to handle a whole search at once. A coloured badge means the shot is also in another collection — allowed, ' +
+      'and charts credit it to the first one. "Suggest from titles" is a starting point you review, not an ' +
+      'automatic classification.',
   },
   excludeBoosted: {
     title: 'Traffic filter',

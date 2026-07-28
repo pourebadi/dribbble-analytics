@@ -21,7 +21,7 @@
  *  - InfoTips on every card (texts centralized in helpTexts.ts)
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -68,8 +68,9 @@ import {
 import { Shot, Profile } from '../types.ts';
 import { DateRangePicker } from './DateRangePicker.tsx';
 import { InfoTip } from './InfoTip.tsx';
-import { BoostEntry, fetchBoosts } from '../boosts.ts';
-import { Collection, fetchCollections, collectionOfShot } from '../collections.ts';
+import { BoostEntry } from '../boosts.ts';
+import { collectionOfShot } from '../collections.ts';
+import { useBoosts, useCollections } from '../registryStore.ts';
 import * as A from '../analytics.ts';
 import type { MetricKey } from '../analytics.ts';
 import { assessDataQuality, QUALITY_LABEL } from '../dataQuality.ts';
@@ -156,10 +157,10 @@ export function AnalysisTab({
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const [promoPanelOpen, setPromoPanelOpen] = useState(false);
 
-  const [collections, setCollections] = useState<Collection[]>([]);
-  const [collectionsLoaded, setCollectionsLoaded] = useState(false);
-  const [boosts, setBoosts] = useState<BoostEntry[]>([]);
-  const [boostsLoaded, setBoostsLoaded] = useState(false);
+  // Both registries come from the shared store: saved on the Promotions or
+  // Collections page, they are visible here immediately without a refetch.
+  const { boosts, loaded: boostsLoaded } = useBoosts();
+  const { collections, loaded: collectionsLoaded } = useCollections();
 
   // ----- Chart-local state -----
   const [trendMetric, setTrendMetric] = useState<MetricKey>('views');
@@ -183,25 +184,6 @@ export function AnalysisTab({
   const engLegend = useLegendToggle();
   const stackLegend = useLegendToggle();
   const cadenceLegend = useLegendToggle();
-
-  useEffect(() => {
-    let alive = true;
-    fetchBoosts().then((b) => {
-      if (alive) {
-        setBoosts(b);
-        setBoostsLoaded(true);
-      }
-    });
-    fetchCollections().then((c) => {
-      if (alive) {
-        setCollections(c);
-        setCollectionsLoaded(true);
-      }
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   // ----- Collections (user-defined; no title guessing) -----
   const collectionByShot = useMemo(() => collectionOfShot(collections), [collections]);
@@ -1079,6 +1061,25 @@ export function AnalysisTab({
   // =========================================================================
   // Render
   // =========================================================================
+  // Render nothing chart-shaped until both registries are known. They decide
+  // whether the collection section exists at all, and letting them arrive after
+  // first paint changed the page height mid-scroll — which is what made the
+  // view jump and the sections appear out of order.
+  if (!boostsLoaded || !collectionsLoaded) {
+    return (
+      <div className="space-y-6">
+        <div className={`${CARD} h-[92px] animate-pulse`} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className={`${CARD} h-[168px] animate-pulse`} />
+          ))}
+        </div>
+        <div className={`${CARD} h-[420px] animate-pulse`} />
+        <p className="text-xs text-slate-400 font-semibold text-center">Loading analysis…</p>
+      </div>
+    );
+  }
+
   if (dates.length === 0) {
     return (
       <div className={`${CARD} p-10 text-center`}>
@@ -3054,9 +3055,19 @@ export function AnalysisTab({
                             />
                           </div>
                         </div>
-                        <span className="text-[11px] font-mono font-black text-slate-700 whitespace-nowrap flex-shrink-0 self-center">
-                          {topShotsMode === 'growth' ? '+' : ''}
-                          {val.toLocaleString()}
+                        {/* Primary figure plus the complementary one, so a
+                            fast-growing shot can be placed against its lifetime
+                            size (and vice versa) without switching modes. */}
+                        <span className="whitespace-nowrap flex-shrink-0 self-center text-right">
+                          <span className="block text-[11px] font-mono font-black text-slate-700">
+                            {topShotsMode === 'growth' ? '+' : ''}
+                            {val.toLocaleString()}
+                          </span>
+                          <span className="block text-[9px] font-mono font-bold text-slate-400 mt-0.5">
+                            {topShotsMode === 'growth'
+                              ? `total ${compact(x.totals[metric])}`
+                              : `+${compact(x.growth[metric])} in range`}
+                          </span>
                         </span>
                       </a>
                     );

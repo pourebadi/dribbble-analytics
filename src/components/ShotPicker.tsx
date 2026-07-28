@@ -28,14 +28,19 @@ import { PICKER_TRIGGER, PICKER_TRIGGER_OPEN } from '../formStyles.ts';
  * painted image across two different shots, and eager decoding keeps a 60-row
  * dropdown correct.
  */
-function Thumb({ shot, size = 'md' }: { shot: Shot; size?: 'sm' | 'md' }) {
-  const dims = size === 'sm' ? { width: 36, height: 28 } : { width: 48, height: 36 };
-  const [failed, setFailed] = useState(false);
+/** urls that failed to load, kept outside React so no component state leaks
+ *  from one shot to another when list rows are recycled */
+const brokenImages = new Set<string>();
 
-  if (!shot.imageUrl || failed) {
+function Thumb({ shot, size = 'md' }: { shot: Shot; size?: 'sm' | 'md' }) {
+  const w = size === 'sm' ? 36 : 48;
+  const h = size === 'sm' ? 28 : 36;
+  const src = shot.imageUrl;
+
+  if (!src || brokenImages.has(src)) {
     return (
       <span
-        style={dims}
+        style={{ width: w, height: h }}
         className="rounded-md bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0"
       >
         <ImageIcon className="w-3.5 h-3.5 text-slate-300" />
@@ -45,14 +50,22 @@ function Thumb({ shot, size = 'md' }: { shot: Shot; size?: 'sm' | 'md' }) {
 
   return (
     <img
-      key={shot.imageUrl}
-      src={shot.imageUrl}
+      // Keyed by src so React can never keep a painted image when the row is
+      // reused for a different shot, and sized with real width/height
+      // attributes so the slot does not collapse before the image decodes.
+      key={src}
+      src={src}
+      width={w}
+      height={h}
       alt=""
       referrerPolicy="no-referrer"
       decoding="async"
-      onError={() => setFailed(true)}
-      style={dims}
-      className="rounded-md object-cover border border-slate-200 flex-shrink-0 bg-slate-100"
+      onError={(e) => {
+        brokenImages.add(src);
+        (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
+      }}
+      style={{ width: w, height: h, objectFit: 'cover' }}
+      className="rounded-md border border-slate-200 flex-shrink-0 bg-slate-100"
     />
   );
 }
@@ -63,6 +76,7 @@ export function ShotPicker({
   onChange,
   projectOf,
   placeholder = 'Search a shot by title, tag or project…',
+  triggerLabel = 'Select a shot…',
   disabledUrls,
 }: {
   shots: Shot[];
@@ -70,12 +84,20 @@ export function ShotPicker({
   onChange: (url: string) => void;
   projectOf?: (url: string) => string;
   placeholder?: string;
+  /** text shown on the closed trigger when nothing is selected */
+  triggerLabel?: string;
   /** urls to show as already-registered (still selectable, just marked) */
   disabledUrls?: Set<string>;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [active, setActive] = useState(0);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedQuery(query), 140);
+    return () => window.clearTimeout(t);
+  }, [query]);
 
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -86,7 +108,7 @@ export function ShotPicker({
   const selected = useMemo(() => shots.find((s) => s.url === value) || null, [shots, value]);
 
   const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = debouncedQuery.trim().toLowerCase();
     const scored = shots.map((s) => {
       const title = shotTitle(s);
       const tags = (s.tags || []).join(' ');
@@ -108,10 +130,10 @@ export function ShotPicker({
       .filter((r) => r.match)
       .sort((a, b) => (a.score === b.score ? (b.s.views || 0) - (a.s.views || 0) : a.score - b.score))
       .slice(0, 60);
-  }, [shots, query, projectOf]);
+  }, [shots, debouncedQuery, projectOf]);
 
   // keep the highlighted row valid and in view
-  useEffect(() => setActive(0), [query, open]);
+  useEffect(() => setActive(0), [debouncedQuery, open]);
   useEffect(() => {
     if (!open || !listRef.current) return;
     const el = listRef.current.querySelector<HTMLElement>(`[data-idx="${active}"]`);
@@ -291,7 +313,7 @@ export function ShotPicker({
             </span>
           </>
         ) : (
-          <span className="flex-1 text-xs font-semibold text-slate-400 py-1">Select a shot…</span>
+          <span className="flex-1 text-xs font-semibold text-slate-400 truncate">{triggerLabel}</span>
         )}
         <ChevronDown
           className={`w-3.5 h-3.5 text-slate-400 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}

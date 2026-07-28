@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import * as A from '../src/analytics.ts';
 import { assessDataQuality, QUALITY_LABEL } from '../src/dataQuality.ts';
+import { suggestCollections } from '../src/collections.ts';
 import type { Shot } from '../src/types.ts';
 
 const shots: Shot[] = JSON.parse(
@@ -152,16 +153,15 @@ const featTotal = attr.featured.reduce((a, b) => a + b, 0);
 console.log(`\nAttribution sample: paid=${paidTotal}, featured=${featTotal}`);
 check('featured attribution non-zero for the seeded feature', featTotal > 0);
 
-// Projects and collections
-const projects = A.buildProjectMap(ok);
-const counts = new Map<string, number>();
-projects.forEach((p) => counts.set(p, (counts.get(p) || 0) + 1));
-console.log('\nProjects:', [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}(${v})`).join(', '));
-check('projects parsed', counts.size >= 4);
-
-const kw = A.keywordCollectionCounts(ok);
-console.log('Keyword collections:', kw.map((k) => `${k.keyword}(${k.count})`).join(', '));
-check('"System" collection found', kw.some((k) => k.keyword === 'System' && k.count >= 10));
+// Collection suggestions (the only place title text is still read, and only
+// as a reviewable starting point on the Collections page)
+const suggested = suggestCollections(ok);
+console.log('\nSuggested collections:', suggested.map((c) => `${c.name}(${c.shotUrls.length})`).join(', '));
+check('suggestions produced from the "Title | Project" pattern', suggested.length >= 3);
+check(
+  'no shot appears twice in one suggestion',
+  suggested.every((c) => new Set(c.shotUrls).size === c.shotUrls.length)
+);
 
 // Excluded days must not pollute weekday buckets
 const excludedInWeekday = dates.filter((d, i) => matrix.excluded[i] && matrix.agg.views[i] !== 0);

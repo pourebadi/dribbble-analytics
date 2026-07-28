@@ -471,13 +471,10 @@ export function DashboardStats({
                   <p className="text-xs text-slate-500 font-medium">Search, filter, or click any row to inspect historical metrics timeline</p>
                 </div>
                 
-                <div className="flex flex-wrap items-center gap-3">
-                  {/* Quick find — jump straight to one shot */}
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {/* Quick find — sized like the other controls so the row stays on one line */}
                   {validShots.length > 8 && (
-                    <div className="w-full sm:w-72">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1 mb-1">
-                        Quick find <InfoTip k="dashQuickFind" />
-                      </span>
+                    <div className="w-full sm:w-60">
                       <ShotPicker
                         shots={validShots}
                         value={quickFindUrl}
@@ -492,6 +489,7 @@ export function DashboardStats({
                             setExpandedShotUrl(url);
                           }
                         }}
+                        triggerLabel="Jump to a shot…"
                       />
                     </div>
                   )}
@@ -500,7 +498,7 @@ export function DashboardStats({
                   {filteredShots.length > 0 && (
                     <button
                       onClick={handleExportCSV}
-                      className="px-4 py-2 text-xs font-semibold border border-slate-200 text-slate-600 hover:text-slate-800 hover:bg-slate-50 rounded-xl flex items-center gap-1.5 transition-all shadow-sm"
+                      className={BTN_GHOST}
                       title="Downloads exactly the rows currently shown, after search and tag filtering — not the whole portfolio."
                     >
                       <Download className="w-3.5 h-3.5" />

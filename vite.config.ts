@@ -1,34 +1,17 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import { defineConfig } from 'vite';
+import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
-  const isCodespaces = Boolean(process.env.CODESPACES);
-
   return {
     plugins: [react(), tailwindcss()],
-
-    server: {
-      host: '0.0.0.0',
-
-      // Allow forwarded GitHub Codespaces URLs such as:
-      // https://<codespace-name>-3000.app.github.dev
-      allowedHosts: ['.app.github.dev'],
-
-      // Codespaces exposes the development server through HTTPS/WSS.
-      hmr: isCodespaces
-        ? {
-            protocol: 'wss',
-            clientPort: 443,
-          }
-        : undefined,
-    },
-
     build: {
       outDir: 'dist/client',
-
-      // Keep chart dependencies separate from application code.
+      // Recharts and its d3 dependencies are ~60% of the bundle and change far
+      // less often than app code, so they get their own long-cached chunk.
+      // This keeps the first paint light on large profiles and means a copy
+      // deploy only invalidates the small app chunk.
       rollupOptions: {
         output: {
           manualChunks: {
@@ -37,10 +20,8 @@ export default defineConfig(() => {
           },
         },
       },
-
       chunkSizeWarningLimit: 700,
     },
-
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

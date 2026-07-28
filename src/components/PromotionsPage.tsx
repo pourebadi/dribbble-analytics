@@ -41,19 +41,16 @@ import {
 
 import { Shot } from '../types.ts';
 import { InfoTip } from './InfoTip.tsx';
+import { StaticModeNotice } from './StaticModeNotice.tsx';
 import { ShotPicker } from './ShotPicker.tsx';
 import { DatePicker } from './DatePicker.tsx';
 import { IS_STATIC } from '../api.ts';
-import {
-  BoostEntry,
-  PromoKind,
-  newBoostId,
-  fetchBoosts,
-  persistBoosts,
-} from '../boosts.ts';
+import { BoostEntry, PromoKind, newBoostId } from '../boosts.ts';
+import { useBoostDraft, useCollections } from '../registryStore.ts';
+import { collectionOfShot } from '../collections.ts';
 import * as A from '../analytics.ts';
 import { C, compact, tooltipStyle, tooltipLabelStyle, legendProps } from '../chartTheme.ts';
-import { INPUT } from '../formStyles.ts';
+import { INPUT, BTN_GHOST, BTN_PRIMARY } from '../formStyles.ts';
 import { assessDataQuality } from '../dataQuality.ts';
 
 const CARD = 'bg-white border border-slate-200 rounded-2xl shadow-sm';
@@ -73,28 +70,15 @@ const chartTooltipStyle = tooltipStyle;
 export function PromotionsPage({ shots }: { shots: Shot[] }) {
   const validShots = useMemo(() => shots.filter((s) => s.status === 'ok'), [shots]);
 
-  const [loaded, setLoaded] = useState(false);
-  const [working, setWorking] = useState<BoostEntry[]>([]);
+  const { working, dirty, loaded, setWorking, discard, save } = useBoostDraft();
+  const { collections } = useCollections();
   const [draft, setDraft] = useState({ ...emptyDraft });
-  const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [needToken, setNeedToken] = useState(false);
   const [tokenInput, setTokenInput] = useState('');
   const [listFilter, setListFilter] = useState<'all' | PromoKind>('all');
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-
-  React.useEffect(() => {
-    let alive = true;
-    fetchBoosts().then((b) => {
-      if (!alive) return;
-      setWorking(b);
-      setLoaded(true);
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   // ---- analytics context ----
   const dates = useMemo(() => A.unionDates(validShots), [validShots]);
@@ -108,7 +92,13 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
     [validShots, matrix, working, dismissed]
   );
 
-  const projectMap = useMemo(() => A.buildProjectMap(validShots), [validShots]);
+  // Label shots with their collection so the picker agrees with everything else.
+  const projectMap = useMemo(() => {
+    const byShot = collectionOfShot(collections);
+    const m = new Map<string, string>();
+    validShots.forEach((s) => m.set(s.url, byShot.get(s.url)?.name || ''));
+    return m;
+  }, [validShots, collections]);
   const loggedDates = useMemo(() => new Set(dates), [dates]);
   const lastLoggedDate = dates.length ? dates[dates.length - 1] : undefined;
   const registeredUrls = useMemo(() => new Set(working.map((e) => e.shotUrl)), [working]);
@@ -182,20 +172,18 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
     };
     setWorking([entry, ...working].sort((a, b) => (a.start < b.start ? 1 : -1)));
     setDraft({ ...emptyDraft, kind: draft.kind });
-    setDirty(true);
     setStatus(null);
   };
 
   const removeEntry = (id: string) => {
     setWorking(working.filter((e) => e.id !== id));
-    setDirty(true);
     setStatus(null);
   };
 
   const doSave = async (tokenOverride?: string) => {
     setSaving(true);
     setStatus(null);
-    const res = await persistBoosts(working, tokenOverride);
+    const res = await save(tokenOverride);
     setSaving(false);
     if (res.needToken) {
       setNeedToken(true);
@@ -204,9 +192,6 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
     }
     setNeedToken(false);
     setStatus({ ok: res.ok, message: res.message });
-    if (res.ok) {
-      setDirty(false);
-    }
   };
 
   const inputCls = INPUT;
@@ -215,6 +200,7 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
 
   return (
     <div className="space-y-6">
+      <StaticModeNotice file="data/boosts.json" />
       {/* ============ SUMMARY ============ */}
       <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {[
@@ -573,7 +559,9 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
             <p className="text-xs text-slate-400 font-medium">
               {working.filter((e) => e.kind === 'boost').length} paid ·{' '}
               {working.filter((e) => e.kind === 'featured').length} featured
-              {dirty && <span className="text-amber-600 font-bold"> · unsaved changes</span>}
+              {dirty && (
+              <span className="text-amber-600 font-bold"> · unsaved — press Save to make it live everywhere</span>
+            )}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -596,10 +584,15 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
                 </button>
               ))}
             </div>
+            {dirty && (
+              <button onClick={discard} className={BTN_GHOST} title="Throw away unsaved changes">
+                Discard
+              </button>
+            )}
             <button
               onClick={() => doSave()}
               disabled={!dirty || saving}
-              className="flex items-center gap-1.5 pink-gradient text-white text-xs font-bold px-4 py-2 rounded-xl disabled:opacity-40 hover:brightness-105 transition-all shadow-sm shadow-pink-200/50"
+              className={BTN_PRIMARY}
             >
               <Save className="w-3.5 h-3.5" />
               {saving ? 'Saving…' : dirty ? 'Save registry' : 'Saved'}

@@ -51,6 +51,7 @@ function NextSyncCountdown() {
   );
 }
 import { LayoutDashboard, LineChart, History, Cpu, Server, ShieldCheck, Zap, Folder } from 'lucide-react';
+import { hasUnsavedWork } from './registryStore.ts';
 
 export default function App() {
   const [activeProfileUrl, setActiveProfileUrl] = useState<string | null>('https://dribbble.com/helistudio');
@@ -59,6 +60,21 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'analysis' | 'promotions' | 'collections'>('dashboard');
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Guard against losing registry edits. Promotions and Collections keep drafts
+   * in a shared store so navigating between tabs is safe, but closing the tab
+   * would still discard anything not yet written to the repository.
+   */
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!hasUnsavedWork()) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
 
   /**
    * Display name for the tracked account. Derived from the profile URL rather

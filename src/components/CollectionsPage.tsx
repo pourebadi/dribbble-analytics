@@ -9,11 +9,12 @@
  * pre-fills collections the user can then edit or discard before saving.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Folder,
   FolderPlus,
   Plus,
+  X,
   Trash2,
   Save,
   Search,
@@ -27,16 +28,16 @@ import {
 
 import { Shot } from '../types.ts';
 import { InfoTip } from './InfoTip.tsx';
+import { StaticModeNotice } from './StaticModeNotice.tsx';
 import { IS_STATIC } from '../api.ts';
 import {
   Collection,
-  fetchCollections,
-  persistCollections,
   newCollectionId,
   defaultColor,
   suggestCollections,
   unassignedShots,
 } from '../collections.ts';
+import { useCollectionDraft } from '../registryStore.ts';
 import * as A from '../analytics.ts';
 import { compact, CARD } from '../chartTheme.ts';
 import { INPUT_WITH_ICON, INPUT, BTN_GHOST, BTN_PRIMARY } from '../formStyles.ts';
@@ -44,10 +45,9 @@ import { INPUT_WITH_ICON, INPUT, BTN_GHOST, BTN_PRIMARY } from '../formStyles.ts
 export function CollectionsPage({ shots }: { shots: Shot[] }) {
   const validShots = useMemo(() => shots.filter((s) => s.status === 'ok'), [shots]);
 
-  const [saved, setSaved] = useState<Collection[]>([]);
-  const [working, setWorking] = useState<Collection[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [dirty, setDirty] = useState(false);
+  // Shared store: fetched once per session, survives tab switches, and a save
+  // is picked up by the Growth Analysis tab straight away.
+  const { working, dirty, loaded, setWorking, discard, save } = useCollectionDraft();
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [needToken, setNeedToken] = useState(false);
@@ -59,19 +59,10 @@ export function CollectionsPage({ shots }: { shots: Shot[] }) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
+  // keep a selection without fighting the user's clicks
   useEffect(() => {
-    let alive = true;
-    fetchCollections().then((c) => {
-      if (!alive) return;
-      setSaved(c);
-      setWorking(c);
-      setActiveId(c.length ? c[0].id : null);
-      setLoaded(true);
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
+    if (!activeId && working.length > 0) setActiveId(working[0].id);
+  }, [working, activeId]);
 
   const active = working.find((c) => c.id === activeId) || null;
   const assignedElsewhere = useMemo(() => {
@@ -103,26 +94,82 @@ export function CollectionsPage({ shots }: { shots: Shot[] }) {
    * always shown first so the current state is never hidden behind the cap.
    */
   const [visibleCount, setVisibleCount] = useState(120);
-  useEffect(() => setVisibleCount(120), [query, activeId]);
+  const [membership, setMembership] = useState<'all' | 'in' | 'out'>('all');
 
-  const orderedShots = useMemo(() => {
-    if (!active) return filteredShots;
-    const inSet = new Set(active.shotUrls);
-    const picked: Shot[] = [];
-    const rest: Shot[] = [];
-    filteredShots.forEach((s) => (inSet.has(s.url) ? picked.push(s) : rest.push(s)));
-    return [...picked, ...rest];
-  }, [filteredShots, active]);
+  useEffect(() => setVisibleCount(120), [query, activeId, membership]);
 
-  const shownShots = useMemo(() => orderedShots.slice(0, visibleCount), [orderedShots, visibleCount]);
+  /**
+   * Ordering is frozen per (collection, search, tab).
+   *
+   * It used to put the selected shots first and depended on the live selection,
+   * so every single click re-sorted the grid and threw the shot you just
+   * touched to the top — which is why assigning a project felt like the page
+   * was fighting you. The order is now captured when you switch collection,
+   * search or tab, and stays put while you tick things.
+   */
+  const orderSignature = `${activeId}|${query}|${membership}`;
+  const frozenOrder = useRef<{ sig: string; urls: string[] }>({ sig: '', urls: [] });
 
-  // ---- mutations ----
   const mutate = (fn: (list: Collection[]) => Collection[]) => {
-    setWorking((prev) => fn(prev));
-    setDirty(true);
+    setWorking(fn(working));
     setStatus(null);
   };
 
+  const orderedShots = useMemo(() => {
+    const inSet = new Set(active?.shotUrls || []);
+    const pool = filteredShots.filter((s) =>
+      membership === 'all' ? true : membership === 'in' ? inSet.has(s.url) : !inSet.has(s.url)
+    );
+
+    if (frozenOrder.current.sig !== orderSignature) {
+      // new context → decide an order once: members first, then by reach
+      const rank = (s: Shot) => (inSet.has(s.url) ? 0 : 1);
+      const sorted = [...pool].sort(
+        (a, b) => rank(a) - rank(b) || (b.views || 0) - (a.views || 0)
+      );
+      frozenOrder.current = { sig: orderSignature, urls: sorted.map((s) => s.url) };
+      return sorted;
+    }
+
+    // same context → keep the frozen order, appending anything new at the end
+    const pos = new Map(frozenOrder.current.urls.map((u, i) => [u, i]));
+    return [...pool].sort(
+      (a, b) => (pos.get(a.url) ?? 1e9) - (pos.get(b.url) ?? 1e9)
+    );
+  }, [filteredShots, active, membership, orderSignature]);
+
+  const shownShots = useMemo(() => orderedShots.slice(0, visibleCount), [orderedShots, visibleCount]);
+
+  /** counts for the membership tabs, so the labels are never a surprise */
+  const membershipCounts = useMemo(() => {
+    const inSet = new Set(active?.shotUrls || []);
+    let inC = 0;
+    filteredShots.forEach((s) => {
+      if (inSet.has(s.url)) inC += 1;
+    });
+    return { all: filteredShots.length, in: inC, out: filteredShots.length - inC };
+  }, [filteredShots, active]);
+
+  /** bulk add/remove everything currently listed — the difference between one
+   *  click and thirty when a project has just been imported */
+  const bulkToggle = (add: boolean) => {
+    if (!active) return;
+    const urls = orderedShots.map((s) => s.url);
+    mutate((list) =>
+      list.map((c) => {
+        if (c.id !== active.id) return c;
+        if (add) {
+          const set = new Set(c.shotUrls);
+          urls.forEach((u) => set.add(u));
+          return { ...c, shotUrls: Array.from(set) };
+        }
+        const drop = new Set(urls);
+        return { ...c, shotUrls: c.shotUrls.filter((u) => !drop.has(u)) };
+      })
+    );
+  };
+
+  // ---- mutations ----
   const addCollection = () => {
     const name = newName.trim();
     if (!name) return;
@@ -186,7 +233,7 @@ export function CollectionsPage({ shots }: { shots: Shot[] }) {
   const doSave = async (tokenOverride?: string) => {
     setSaving(true);
     setStatus(null);
-    const res = await persistCollections(working, tokenOverride);
+    const res = await save(tokenOverride);
     setSaving(false);
     if (res.needToken) {
       setNeedToken(true);
@@ -195,16 +242,13 @@ export function CollectionsPage({ shots }: { shots: Shot[] }) {
     }
     setNeedToken(false);
     setStatus({ ok: res.ok, message: res.message });
-    if (res.ok) {
-      setSaved(working);
-      setDirty(false);
-    }
   };
 
   const totalAssigned = new Set(working.flatMap((c) => c.shotUrls)).size;
 
   return (
     <div className="space-y-6">
+      <StaticModeNotice file="data/collections.json" />
       {/* ---------- Header stats ---------- */}
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[
@@ -379,9 +423,7 @@ export function CollectionsPage({ shots }: { shots: Shot[] }) {
               </h3>
               <p className="text-xs text-slate-400 font-medium mt-0.5">
                 {active
-                  ? `${active.shotUrls.length} of ${validShots.length} shots in this collection${
-                      query ? ` · ${filteredShots.length} match your search` : ''
-                    }`
+                  ? `${active.shotUrls.length} of ${validShots.length} shots assigned · click any card to add or remove`
                   : 'Select a collection on the left to assign shots'}
               </p>
             </div>
@@ -396,14 +438,61 @@ export function CollectionsPage({ shots }: { shots: Shot[] }) {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto max-h-[520px] p-3">
+          {/* Membership tabs + bulk actions. Assigning a project used to mean
+              thirty individual clicks through a list that reshuffled itself
+              after each one. */}
+          {active && (
+            <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-white">
+              <div className="flex gap-0.5 bg-slate-100 p-0.5 rounded-xl border border-slate-200">
+                {(
+                  [
+                    { k: 'all' as const, label: 'All', n: membershipCounts.all },
+                    { k: 'in' as const, label: 'In collection', n: membershipCounts.in },
+                    { k: 'out' as const, label: 'Not in it', n: membershipCounts.out },
+                  ] as const
+                ).map(({ k, label, n }) => (
+                  <button
+                    key={k}
+                    onClick={() => setMembership(k)}
+                    className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all ${
+                      membership === k ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    {label}
+                    <span className="ml-1.5 font-mono text-slate-400">{n}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {orderedShots.some((sh) => !active.shotUrls.includes(sh.url)) && (
+                  <button onClick={() => bulkToggle(true)} className={BTN_GHOST}>
+                    <Plus className="w-3.5 h-3.5" />
+                    Add all {orderedShots.filter((sh) => !active.shotUrls.includes(sh.url)).length} listed
+                  </button>
+                )}
+                {orderedShots.some((sh) => active.shotUrls.includes(sh.url)) && (
+                  <button onClick={() => bulkToggle(false)} className={BTN_GHOST}>
+                    <X className="w-3.5 h-3.5" />
+                    Remove {orderedShots.filter((sh) => active.shotUrls.includes(sh.url)).length} listed
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="flex-1 overflow-y-auto max-h-[520px] p-3 overscroll-contain">
             {!active ? (
               <p className="text-xs text-slate-400 font-medium text-center py-16">
                 No collection selected.
               </p>
-            ) : filteredShots.length === 0 ? (
+            ) : orderedShots.length === 0 ? (
               <p className="text-xs text-slate-400 font-medium text-center py-16">
-                No shot matches &ldquo;{query}&rdquo;.
+                {query
+                  ? `No shot matches “${query}” in this tab.`
+                  : membership === 'in'
+                  ? 'Nothing assigned to this collection yet — switch to “Not in it” to add shots.'
+                  : 'Every shot is already in this collection.'}
               </p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
@@ -414,10 +503,10 @@ export function CollectionsPage({ shots }: { shots: Shot[] }) {
                     <button
                       key={s.url}
                       onClick={() => toggleShot(s.url)}
-                      className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl border text-left transition-all ${
+                      className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl border text-left transition-colors ${
                         inThis
-                          ? 'border-pink-200 bg-pink-50/70'
-                          : 'border-transparent hover:bg-slate-50 hover:border-slate-200'
+                          ? 'border-pink-300 bg-pink-50 ring-1 ring-pink-100'
+                          : 'border-slate-100 bg-white hover:bg-slate-50 hover:border-slate-200'
                       }`}
                     >
                       <span
@@ -489,8 +578,7 @@ export function CollectionsPage({ shots }: { shots: Shot[] }) {
               {dirty && (
                 <button
                   onClick={() => {
-                    setWorking(saved);
-                    setDirty(false);
+                    discard();
                     setStatus(null);
                   }}
                   className={BTN_GHOST}

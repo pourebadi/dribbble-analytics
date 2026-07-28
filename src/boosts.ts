@@ -25,11 +25,6 @@ import { IS_STATIC, GITHUB_REPO, getSavedGithubToken } from './api.ts';
 
 export type PromoKind = 'boost' | 'featured';
 
-export const PROMO_LABEL: Record<PromoKind, string> = {
-  boost: 'Boosted (paid)',
-  featured: 'Featured (free)',
-};
-
 export interface BoostEntry {
   id: string;
   shotUrl: string;
