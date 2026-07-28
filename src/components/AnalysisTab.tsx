@@ -21,7 +21,7 @@
  *  - InfoTips on every card (texts centralized in helpTexts.ts)
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -79,6 +79,13 @@ import { C, SERIES, compact, tooltipStyle, tooltipLabelStyle, gridProps } from '
 import { BTN_PRIMARY } from '../formStyles.ts';
 import { useLegendToggle, LegendResetHint } from '../useLegendToggle.tsx';
 import { buildInsights } from '../insights.ts';
+import {
+  ViewSettings,
+  loadViewSettings,
+  saveViewSettings,
+  kindsForTraffic,
+  TrafficMode,
+} from '../viewSettings.ts';
 
 // ---------------------------------------------------------------------------
 // Small shared UI atoms
@@ -150,18 +157,31 @@ export function AnalysisTab({
   onOpenCollections?: () => void;
 }) {
   // ----- Filters / global state -----
-  const [rangePreset, setRangePreset] = useState<'7d' | '14d' | '30d' | '90d' | 'all' | 'custom'>('30d');
-  const [customStart, setCustomStart] = useState('');
-  const [customEnd, setCustomEnd] = useState('');
-  const [collection, setCollection] = useState<string>('all'); // 'all' | 'proj:NAME' | 'kw:WORD'
   /**
-   * Nothing is filtered by default. `excludedKinds` and `excludedIds` are what
-   * the reader has explicitly asked to remove, so the charts always start by
-   * showing the real numbers.
+   * Filters live in one persisted object rather than a handful of separate
+   * useStates, so a refresh no longer drops the reader back on defaults.
+   * `traffic` starts at 'all' — nothing is filtered until it is asked for.
    */
-  const [excludedKinds, setExcludedKinds] = useState<PromoKind[]>([]);
-  /** ids of individual promotions the user chose to exclude (overrides the mode) */
-  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
+  const [view, setView] = useState<ViewSettings>(() => loadViewSettings(profile?.url));
+  useEffect(() => {
+    saveViewSettings(view, profile?.url);
+  }, [view, profile?.url]);
+
+  const patch = (p: Partial<ViewSettings>) => setView((v) => ({ ...v, ...p }));
+
+  const rangePreset = view.rangePreset;
+  const setRangePreset = (r: ViewSettings['rangePreset']) => patch({ rangePreset: r });
+  const customStart = view.customStart;
+  const customEnd = view.customEnd;
+  const collection = view.collection;
+  const setCollection = (c: string) => patch({ collection: c });
+
+  const traffic = view.traffic;
+  const setTraffic = (t: TrafficMode) => patch({ traffic: t });
+  const excludedKinds = useMemo(() => kindsForTraffic(traffic) as PromoKind[], [traffic]);
+  const excludedIds = useMemo(() => new Set(view.excludedIds), [view.excludedIds]);
+  const setExcludedIds = (next: Set<string>) => patch({ excludedIds: [...next] });
+
   const [promoPanelOpen, setPromoPanelOpen] = useState(false);
 
   // Both registries come from the shared store: saved on the Promotions or
@@ -294,13 +314,13 @@ export function AnalysisTab({
   /** short label for the filter button, so its state is readable at a glance */
   const filterSummary = useMemo(() => {
     const parts: string[] = [];
-    if (excludedKinds.includes('boost')) parts.push('paid');
+    if (excludedKinds.includes('boost')) parts.push('paid boosts');
     if (excludedKinds.includes('featured')) parts.push('featured');
     const singles = [...excludedIds].filter(
       (id) => !excludedKinds.includes(boosts.find((b) => b.id === id)?.kind as PromoKind)
     ).length;
     if (singles > 0) parts.push(`${singles} campaign${singles > 1 ? 's' : ''}`);
-    return parts.length ? `Without ${parts.join(' + ')}` : 'Showing all traffic';
+    return parts.length ? `Without ${parts.join(' and ')}` : 'Showing all traffic';
   }, [excludedKinds, excludedIds, boosts]);
 
 
@@ -1317,176 +1337,134 @@ export function AnalysisTab({
                 min={firstDate}
                 max={lastDate}
                 availableDates={availableDates}
-                onChange={(s, e) => {
-                  setCustomStart(s);
-                  setCustomEnd(e);
-                }}
+                onChange={(s, e) => patch({ customStart: s, customEnd: e })}
               />
             )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {/*
-              One opt-in control instead of three.
+              Quick switch plus a detail panel.
 
-              The old layout was backwards: it asked which traffic to *exclude*
-              before the reader had any reason to exclude anything, and split
-              that across a Traffic switch, a Per-campaign panel and a
-              Promotions counter. The default is now simply "everything", and
-              filtering is one button the reader reaches for only when they
-              want to ask "what would this look like without the promotion?".
+              The three-way switch is the fast path most readers want — one
+              click to see the account without paid reach. The panel behind it
+              is for the finer question of removing one specific campaign. Both
+              default to showing everything: "All" is selected until the reader
+              chooses otherwise, and the choice now survives a refresh.
             */}
             {boosts.length > 0 && (
-              <div className="relative">
-                <button
-                  onClick={() => setPromoPanelOpen(!promoPanelOpen)}
-                  className={`h-9 flex items-center gap-2 px-3 rounded-xl text-[11px] font-bold border transition-all ${
-                    filterActive
-                      ? 'bg-pink-50 border-pink-200 text-pink-700 shadow-sm'
-                      : 'bg-white border-slate-200 text-slate-600 hover:border-pink-200'
-                  }`}
-                  title="Temporarily remove promoted traffic from every chart"
-                >
-                  <SlidersHorizontal className="w-3.5 h-3.5" />
-                  {filterActive ? filterSummary : 'Showing all traffic'}
-                  <ChevronDown className={`w-3 h-3 transition-transform ${promoPanelOpen ? 'rotate-180' : ''}`} />
-                </button>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                  Traffic <InfoTip k="excludeBoosted" />
+                </span>
+                <Seg>
+                  <SegBtn active={traffic === 'all'} onClick={() => setTraffic('all')}>
+                    All
+                  </SegBtn>
+                  {paidUrls.size > 0 && (
+                    <SegBtn active={traffic === 'no-paid'} onClick={() => setTraffic('no-paid')}>
+                      No paid
+                    </SegBtn>
+                  )}
+                  <SegBtn active={traffic === 'organic'} onClick={() => setTraffic('organic')}>
+                    Organic
+                  </SegBtn>
+                </Seg>
 
-                {promoPanelOpen && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setPromoPanelOpen(false)} />
-                    <div className="absolute z-50 right-0 mt-2 w-[340px] bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-200/70 overflow-hidden">
-                      <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60">
-                        <p className="text-[11px] font-extrabold text-slate-800 flex items-center gap-1.5">
-                          Compare without promotions <InfoTip k="excludeBoosted" />
-                        </p>
-                        <p className="text-[10px] text-slate-400 font-medium mt-0.5 leading-snug">
-                          Charts show everything by default. Tick what you want removed to see the organic picture.
-                        </p>
-                      </div>
+                {/* Per-campaign detail, only worth offering with more than one */}
+                {boosts.length > 1 && (
+                  <div className="relative">
+                    <button
+                      onClick={() => setPromoPanelOpen(!promoPanelOpen)}
+                      className={`h-9 flex items-center gap-1.5 px-3 rounded-xl text-[11px] font-bold border transition-all ${
+                        excludedIds.size > 0
+                          ? 'bg-pink-50 border-pink-200 text-pink-700'
+                          : 'bg-white border-slate-200 text-slate-500 hover:border-pink-200'
+                      }`}
+                      title="Remove one specific campaign instead of a whole category"
+                    >
+                      <SlidersHorizontal className="w-3.5 h-3.5" />
+                      {excludedIds.size > 0 ? `${excludedIds.size} campaign${excludedIds.size > 1 ? 's' : ''}` : 'Per campaign'}
+                      <ChevronDown className={`w-3 h-3 transition-transform ${promoPanelOpen ? 'rotate-180' : ''}`} />
+                    </button>
 
-                      <div className="p-2">
-                        {[
-                          {
-                            key: 'boost' as const,
-                            label: 'Paid boosts',
-                            hint: 'What your budget bought',
-                            n: paidUrls.size,
-                            Icon: Zap,
-                            tone: 'text-pink-500',
-                          },
-                          {
-                            key: 'featured' as const,
-                            label: 'Featured',
-                            hint: 'Free exposure from Dribbble',
-                            n: featuredUrls.size,
-                            Icon: Star,
-                            tone: 'text-indigo-500',
-                          },
-                        ]
-                          .filter((r) => r.n > 0)
-                          .map(({ key, label, hint, n, Icon, tone }) => {
-                            const on = excludedKinds.includes(key);
-                            return (
-                              <label
-                                key={key}
-                                className="flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={on}
-                                  onChange={() => {
-                                    setExcludedKinds(
-                                      on ? excludedKinds.filter((k) => k !== key) : [...excludedKinds, key]
-                                    );
-                                  }}
-                                  className="accent-pink-500 w-3.5 h-3.5 flex-shrink-0"
-                                />
-                                <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${tone}`} />
-                                <span className="min-w-0 flex-1">
-                                  <span className="block text-[11px] font-bold text-slate-700 leading-tight">
-                                    Remove {label}
-                                  </span>
-                                  <span className="block text-[10px] font-medium text-slate-400">{hint}</span>
-                                </span>
-                                <span className="text-[10px] font-mono font-bold text-slate-400">{n}</span>
-                              </label>
-                            );
-                          })}
-
-                        {/* individual campaigns, only when there is more than one */}
-                        {boosts.length > 1 && (
-                          <div className="mt-1 pt-2 border-t border-slate-100">
-                            <p className="px-2.5 pb-1.5 text-[9px] font-black text-slate-400 uppercase tracking-wider">
-                              Or pick single campaigns
+                    {promoPanelOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setPromoPanelOpen(false)} />
+                        <div className="absolute z-50 right-0 mt-2 w-[340px] bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-200/70 overflow-hidden">
+                          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60">
+                            <p className="text-[11px] font-extrabold text-slate-800">Remove single campaigns</p>
+                            <p className="text-[10px] text-slate-400 font-medium mt-0.5 leading-snug">
+                              For when you want the account without one specific push, rather than without a whole
+                              category.
                             </p>
-                            <div className="max-h-48 overflow-y-auto">
-                              {boosts.map((b) => {
-                                const forced = excludedKinds.includes(b.kind);
-                                const checked = forced || excludedIds.has(b.id);
-                                const shot = shots.find((sh) => sh.url === b.shotUrl);
-                                return (
-                                  <label
-                                    key={b.id}
-                                    className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl transition-colors ${
-                                      forced ? 'opacity-45' : 'hover:bg-slate-50 cursor-pointer'
-                                    }`}
-                                    title={forced ? 'Already removed by the option above' : undefined}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      disabled={forced}
-                                      onChange={() => {
-                                        const next = new Set(excludedIds);
-                                        if (next.has(b.id)) next.delete(b.id);
-                                        else next.add(b.id);
-                                        setExcludedIds(next);
-                                      }}
-                                      className="accent-pink-500 w-3.5 h-3.5 flex-shrink-0"
-                                    />
-                                    {b.kind === 'boost' ? (
-                                      <Zap className="w-3 h-3 text-pink-500 flex-shrink-0" />
-                                    ) : (
-                                      <Star className="w-3 h-3 text-indigo-500 flex-shrink-0" />
-                                    )}
-                                    <span className="min-w-0 flex-1">
-                                      <span className="block text-[11px] font-bold text-slate-700 truncate leading-tight">
-                                        {shot ? A.shotTitle(shot) : b.shotUrl}
-                                      </span>
-                                      <span className="block text-[9px] font-mono font-bold text-slate-400">
-                                        {b.start} → {b.end || 'running'}
-                                      </span>
-                                    </span>
-                                  </label>
-                                );
-                              })}
-                            </div>
                           </div>
-                        )}
-                      </div>
-
-                      <div className="px-3 py-2.5 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between">
-                        <button
-                          onClick={() => {
-                            setExcludedKinds([]);
-                            setExcludedIds(new Set());
-                          }}
-                          disabled={!filterActive}
-                          className="text-[10px] font-bold text-slate-500 hover:text-pink-600 disabled:opacity-40 transition-colors"
-                        >
-                          Reset to all traffic
-                        </button>
-                        <button
-                          onClick={() => onOpenPromotions?.()}
-                          className="text-[10px] font-bold text-slate-500 hover:text-pink-600 transition-colors flex items-center gap-1"
-                        >
-                          <Zap className="w-3 h-3 text-pink-500" />
-                          Manage promotions
-                        </button>
-                      </div>
-                    </div>
-                  </>
+                          <div className="p-2 max-h-64 overflow-y-auto">
+                            {boosts.map((b) => {
+                              const forced = excludedKinds.includes(b.kind);
+                              const checked = forced || excludedIds.has(b.id);
+                              const shot = shots.find((sh) => sh.url === b.shotUrl);
+                              return (
+                                <label
+                                  key={b.id}
+                                  className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl transition-colors ${
+                                    forced ? 'opacity-45' : 'hover:bg-slate-50 cursor-pointer'
+                                  }`}
+                                  title={
+                                    forced
+                                      ? `Already removed by the "${traffic === 'no-paid' ? 'No paid' : 'Organic'}" setting`
+                                      : undefined
+                                  }
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    disabled={forced}
+                                    onChange={() => {
+                                      const next = new Set(excludedIds);
+                                      if (next.has(b.id)) next.delete(b.id);
+                                      else next.add(b.id);
+                                      setExcludedIds(next);
+                                    }}
+                                    className="accent-pink-500 w-3.5 h-3.5 flex-shrink-0"
+                                  />
+                                  {b.kind === 'boost' ? (
+                                    <Zap className="w-3 h-3 text-pink-500 flex-shrink-0" />
+                                  ) : (
+                                    <Star className="w-3 h-3 text-indigo-500 flex-shrink-0" />
+                                  )}
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block text-[11px] font-bold text-slate-700 truncate leading-tight">
+                                      {shot ? A.shotTitle(shot) : b.shotUrl}
+                                    </span>
+                                    <span className="block text-[9px] font-mono font-bold text-slate-400">
+                                      {b.start} → {b.end || 'running'}
+                                    </span>
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <div className="px-3 py-2.5 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between">
+                            <button
+                              onClick={() => setExcludedIds(new Set())}
+                              disabled={excludedIds.size === 0}
+                              className="text-[10px] font-bold text-slate-500 hover:text-pink-600 disabled:opacity-40 transition-colors"
+                            >
+                              Clear campaign filters
+                            </button>
+                            <button
+                              onClick={() => onOpenPromotions?.()}
+                              className="text-[10px] font-bold text-slate-500 hover:text-pink-600 transition-colors flex items-center gap-1"
+                            >
+                              <Zap className="w-3 h-3 text-pink-500" />
+                              Manage
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
             )}
@@ -1604,6 +1582,100 @@ export function AnalysisTab({
         </div>
       )}
 
+      {/* ===================== ACTIVE FILTER NOTICE ===================== */}
+      {/*
+        When a filter is on, every number below is a what-if rather than what
+        happened. That has to be impossible to miss — a highlighted control in
+        the bar above is not enough once you have scrolled past it.
+      */}
+      {filterActive && (
+        <div className="bg-pink-50 border border-pink-200 rounded-2xl px-5 py-3 flex flex-wrap items-center gap-3">
+          <SlidersHorizontal className="w-4 h-4 text-pink-600 flex-shrink-0" />
+          <p className="text-xs font-extrabold text-pink-900">
+            Filtered view — {filterSummary.toLowerCase()}
+          </p>
+          <p className="text-[11px] text-pink-700 font-medium">
+            Every chart below is showing what the period would look like without that traffic, not what actually
+            happened.
+          </p>
+          <button
+            onClick={() => patch({ traffic: 'all', excludedIds: [] })}
+            className="ml-auto h-7 px-3 rounded-lg text-[10px] font-bold text-pink-700 bg-white border border-pink-200 hover:bg-pink-100 transition-colors"
+          >
+            Show everything
+          </button>
+        </div>
+      )}
+
+      {/* ===================== KPI ROW ===================== */}
+      {collections.length > 0 && (
+        <>
+      <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        {kpis.map(({ metric, gained, pct }) => {
+          const meta = METRIC_META[metric];
+          return (
+            <div key={metric} className={`${CARD} p-5 relative overflow-hidden group flex flex-col`}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="p-2 rounded-xl" style={{ background: meta.color + '14', color: meta.color }}>
+                  <meta.Icon className="w-4.5 h-4.5" style={{ width: 18, height: 18 }} />
+                </div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                  Gained · {rangeLabel} <InfoTip k={`kpi_${metric}`} />
+                </span>
+              </div>
+              <h3 className="text-2xl font-black text-slate-800 tracking-tight font-mono">
+                +{gained.toLocaleString()}
+              </h3>
+              <p className="text-[11px] font-semibold mt-1.5 flex items-center gap-1">
+                {pct === null ? (
+                  <span className="text-slate-400">no previous window to compare</span>
+                ) : pct >= 0 ? (
+                  <>
+                    <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+                    <span className="text-emerald-600">+{pct.toFixed(1)}%</span>
+                    <span className="text-slate-400">vs previous {rangeLabel.replace('last ', '')}</span>
+                  </>
+                ) : (
+                  <>
+                    <TrendingDown className="w-3.5 h-3.5 text-red-500" />
+                    <span className="text-red-600">{pct.toFixed(1)}%</span>
+                    <span className="text-slate-400">vs previous window</span>
+                  </>
+                )}
+              </p>
+              <span className="text-[10px] font-bold uppercase tracking-wider mt-2 inline-block" style={{ color: meta.color }}>
+                {meta.label}
+              </span>
+
+              {/* momentum sparkline — the shape of the daily gains behind the number */}
+              {kpiSpark[metric].length >= 2 && (
+                <div className="h-10 -mx-5 -mb-5 mt-2 opacity-90 pointer-events-none">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={kpiSpark[metric]} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id={`spark_${metric}`} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={meta.color} stopOpacity={0.28} />
+                          <stop offset="100%" stopColor={meta.color} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <Area
+                        type="monotone"
+                        dataKey="v"
+                        stroke={meta.color}
+                        strokeWidth={1.75}
+                        fill={`url(#spark_${metric})`}
+                        isAnimationActive={false}
+                        dot={false}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </section>
+
       {/* ===================== DERIVED KPIs ===================== */}
       <section className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         {[
@@ -1677,139 +1749,6 @@ export function AnalysisTab({
                 )}
               </div>
               <p className="text-[11px] font-semibold text-slate-400 mt-1.5 leading-snug">{sub}</p>
-            </div>
-          );
-        })}
-      </section>
-
-      {/* ===================== INSIGHTS ===================== */}
-      {insights.length > 0 && (
-        <div className={`${CARD} overflow-hidden`}>
-          <div className="px-5 py-3.5 border-b border-slate-100 bg-gradient-to-r from-pink-50/60 to-transparent flex items-center justify-between gap-3">
-            <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
-              <Sparkle className="w-4 h-4 text-pink-500" />
-              What changed <InfoTip k="insights" />
-            </h3>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{rangeLabel}</span>
-          </div>
-
-          <div className="divide-y divide-slate-50">
-            {(showAllInsights ? insights : insights.slice(0, 4)).map((ins) => {
-              const tone =
-                ins.tone === 'good'
-                  ? { dot: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50' }
-                  : ins.tone === 'bad'
-                  ? { dot: 'bg-red-400', text: 'text-red-700', bg: 'bg-red-50' }
-                  : ins.tone === 'action'
-                  ? { dot: 'bg-amber-500', text: 'text-amber-700', bg: 'bg-amber-50' }
-                  : { dot: 'bg-slate-400', text: 'text-slate-700', bg: 'bg-slate-50' };
-              return (
-                <div key={ins.id} className="px-5 py-3.5 flex items-start gap-3 hover:bg-slate-50/50 transition-colors">
-                  <span className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${tone.dot}`} />
-                  <div className="min-w-0 flex-1">
-                    <p className={`text-[12px] font-extrabold leading-snug ${tone.text}`}>{ins.headline}</p>
-                    <p className="text-[11px] text-slate-500 font-medium leading-relaxed mt-0.5">{ins.detail}</p>
-                    {ins.action && (
-                      <p className="text-[11px] text-slate-600 font-semibold leading-relaxed mt-1 flex items-start gap-1.5">
-                        <span className="text-slate-300 mt-px">→</span>
-                        {ins.action}
-                      </p>
-                    )}
-                  </div>
-                  {ins.tone === 'action' && (
-                    <button
-                      onClick={() =>
-                        ins.anchor === 'promotions'
-                          ? onOpenPromotions?.()
-                          : ins.anchor === 'collections'
-                          ? onOpenCollections?.()
-                          : undefined
-                      }
-                      className={`flex-shrink-0 text-[10px] font-bold px-2.5 py-1.5 rounded-lg border transition-colors ${tone.bg} ${tone.text} border-amber-200 hover:brightness-95`}
-                    >
-                      Fix this
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {insights.length > 4 && (
-            <button
-              onClick={() => setShowAllInsights(!showAllInsights)}
-              className="w-full px-5 py-2.5 border-t border-slate-100 bg-slate-50/50 text-[10px] font-bold text-slate-500 hover:text-slate-700 transition-colors"
-            >
-              {showAllInsights ? 'Show fewer' : `Show ${insights.length - 4} more finding${insights.length - 4 > 1 ? 's' : ''}`}
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* ===================== KPI ROW ===================== */}
-      {collections.length > 0 && (
-        <>
-      <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        {kpis.map(({ metric, gained, pct }) => {
-          const meta = METRIC_META[metric];
-          return (
-            <div key={metric} className={`${CARD} p-5 relative overflow-hidden group flex flex-col`}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="p-2 rounded-xl" style={{ background: meta.color + '14', color: meta.color }}>
-                  <meta.Icon className="w-4.5 h-4.5" style={{ width: 18, height: 18 }} />
-                </div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                  Gained · {rangeLabel} <InfoTip k={`kpi_${metric}`} />
-                </span>
-              </div>
-              <h3 className="text-2xl font-black text-slate-800 tracking-tight font-mono">
-                +{gained.toLocaleString()}
-              </h3>
-              <p className="text-[11px] font-semibold mt-1.5 flex items-center gap-1">
-                {pct === null ? (
-                  <span className="text-slate-400">no previous window to compare</span>
-                ) : pct >= 0 ? (
-                  <>
-                    <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
-                    <span className="text-emerald-600">+{pct.toFixed(1)}%</span>
-                    <span className="text-slate-400">vs previous {rangeLabel.replace('last ', '')}</span>
-                  </>
-                ) : (
-                  <>
-                    <TrendingDown className="w-3.5 h-3.5 text-red-500" />
-                    <span className="text-red-600">{pct.toFixed(1)}%</span>
-                    <span className="text-slate-400">vs previous window</span>
-                  </>
-                )}
-              </p>
-              <span className="text-[10px] font-bold uppercase tracking-wider mt-2 inline-block" style={{ color: meta.color }}>
-                {meta.label}
-              </span>
-
-              {/* momentum sparkline — the shape of the daily gains behind the number */}
-              {kpiSpark[metric].length >= 2 && (
-                <div className="h-10 -mx-5 -mb-5 mt-2 opacity-90 pointer-events-none">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={kpiSpark[metric]} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id={`spark_${metric}`} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={meta.color} stopOpacity={0.28} />
-                          <stop offset="100%" stopColor={meta.color} stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <Area
-                        type="monotone"
-                        dataKey="v"
-                        stroke={meta.color}
-                        strokeWidth={1.75}
-                        fill={`url(#spark_${metric})`}
-                        isAnimationActive={false}
-                        dot={false}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
             </div>
           );
         })}
@@ -3533,6 +3472,72 @@ export function AnalysisTab({
         </div>
       </div>
       </section>
+
+
+      {/* ===================== INSIGHTS ===================== */}
+      {insights.length > 0 && (
+        <div className={`${CARD} overflow-hidden`}>
+          <div className="px-5 py-3.5 border-b border-slate-100 bg-gradient-to-r from-pink-50/60 to-transparent flex items-center justify-between gap-3">
+            <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+              <Sparkle className="w-4 h-4 text-pink-500" />
+              What changed <InfoTip k="insights" />
+            </h3>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{rangeLabel}</span>
+          </div>
+
+          <div className="divide-y divide-slate-50">
+            {(showAllInsights ? insights : insights.slice(0, 4)).map((ins) => {
+              const tone =
+                ins.tone === 'good'
+                  ? { dot: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50' }
+                  : ins.tone === 'bad'
+                  ? { dot: 'bg-red-400', text: 'text-red-700', bg: 'bg-red-50' }
+                  : ins.tone === 'action'
+                  ? { dot: 'bg-amber-500', text: 'text-amber-700', bg: 'bg-amber-50' }
+                  : { dot: 'bg-slate-400', text: 'text-slate-700', bg: 'bg-slate-50' };
+              return (
+                <div key={ins.id} className="px-5 py-3.5 flex items-start gap-3 hover:bg-slate-50/50 transition-colors">
+                  <span className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${tone.dot}`} />
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-[12px] font-extrabold leading-snug ${tone.text}`}>{ins.headline}</p>
+                    <p className="text-[11px] text-slate-500 font-medium leading-relaxed mt-0.5">{ins.detail}</p>
+                    {ins.action && (
+                      <p className="text-[11px] text-slate-600 font-semibold leading-relaxed mt-1 flex items-start gap-1.5">
+                        <span className="text-slate-300 mt-px">→</span>
+                        {ins.action}
+                      </p>
+                    )}
+                  </div>
+                  {ins.tone === 'action' && (
+                    <button
+                      onClick={() =>
+                        ins.anchor === 'promotions'
+                          ? onOpenPromotions?.()
+                          : ins.anchor === 'collections'
+                          ? onOpenCollections?.()
+                          : undefined
+                      }
+                      className={`flex-shrink-0 text-[10px] font-bold px-2.5 py-1.5 rounded-lg border transition-colors ${tone.bg} ${tone.text} border-amber-200 hover:brightness-95`}
+                    >
+                      Fix this
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {insights.length > 4 && (
+            <button
+              onClick={() => setShowAllInsights(!showAllInsights)}
+              className="w-full px-5 py-2.5 border-t border-slate-100 bg-slate-50/50 text-[10px] font-bold text-slate-500 hover:text-slate-700 transition-colors"
+            >
+              {showAllInsights ? 'Show fewer' : `Show ${insights.length - 4} more finding${insights.length - 4 > 1 ? 's' : ''}`}
+            </button>
+          )}
+        </div>
+      )}
+
     </div>
   );
 }

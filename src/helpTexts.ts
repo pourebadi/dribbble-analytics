@@ -43,12 +43,14 @@ export const HELP: Record<string, HelpText> = {
       'automatic classification.',
   },
   excludeBoosted: {
-    title: 'Compare without promotions',
+    title: 'Traffic filter',
     body:
-      'Charts show all your traffic by default — nothing is hidden. This is here for when you want to ask a ' +
-      'specific question: what would the numbers look like without the money we spent, or without the day ' +
-      'Dribbble put us on Popular? Tick what to remove and every chart updates; untick to go back. It only ' +
-      'changes the view, never your data.',
+      '"All" is the default and hides nothing — the charts show what actually happened. "No paid" removes ' +
+      'Boosted Shots so you can see what the account does without the budget. "Organic" also removes free ' +
+      'exposure like Popular. "Per campaign" is for removing one specific push rather than a whole category. ' +
+      'While any filter is on, a pink banner sits above the charts so a what-if view is never mistaken for ' +
+      'reality. Your choice is remembered the next time you open the dashboard, and it only changes the view — ' +
+      'never your data.',
   },
   attribution: {
     title: 'Traffic attribution',
