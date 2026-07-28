@@ -22,8 +22,15 @@ export interface ViewSettings {
   collection: string;
   /** quick traffic switch — 'all' means nothing is filtered out */
   traffic: TrafficMode;
-  /** ids of individual promotions the reader chose to exclude */
-  excludedIds: string[];
+  /**
+   * Promotions the reader has switched on.
+   *
+   * Empty by default, and empty means the charts say nothing about promotions
+   * at all — no shaded windows, no badges, no paid-versus-earned breakdown.
+   * Someone opening the dashboard sees their numbers, not a commentary on which
+   * of them were bought. Ticking promotions turns exactly those on.
+   */
+  activePromoIds: string[];
 }
 
 export const DEFAULT_VIEW: ViewSettings = {
@@ -32,7 +39,7 @@ export const DEFAULT_VIEW: ViewSettings = {
   customEnd: '',
   collection: 'all',
   traffic: 'all',
-  excludedIds: [],
+  activePromoIds: [],
 };
 
 const KEY = 'dribbble_view_settings';
@@ -58,8 +65,8 @@ function sanitize(raw: any): ViewSettings {
     v.traffic = raw.traffic;
   }
 
-  if (Array.isArray(raw.excludedIds)) {
-    v.excludedIds = raw.excludedIds.filter((s: any) => typeof s === 'string');
+  if (Array.isArray(raw.activePromoIds)) {
+    v.activePromoIds = raw.activePromoIds.filter((s: any) => typeof s === 'string');
   }
   return v;
 }

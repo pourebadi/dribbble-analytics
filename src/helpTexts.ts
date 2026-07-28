@@ -419,6 +419,16 @@ export const HELP: Record<string, HelpText> = {
       'week produces fewer lines rather than shakier ones. Arrows marked → are suggested next steps; amber items ' +
       'are things only you can resolve.',
   },
+  promoPicker: {
+    title: 'Promotions',
+    body:
+      'Off when you arrive. With nothing ticked the charts behave as if no promotion had ever been recorded — no ' +
+      'shaded windows, no badges, no paid-versus-earned breakdown — so the tab opens on your numbers rather than ' +
+      'a commentary on which of them were bought. Tick any boosts or features and exactly those switch on across ' +
+      'every chart: their windows are marked, their shots are badged, and the paid-versus-earned split appears ' +
+      'counting only them. "All" turns everything on at once. This marks and breaks out promotions; to take ' +
+      'traffic out of the numbers entirely, use the Traffic switch beside it.',
+  },
   historyLedger: {
     title: 'Daily historical ledger',
     body:

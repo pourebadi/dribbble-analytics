@@ -57,7 +57,6 @@ import {
   Layers,
   Folder,
   FolderPlus,
-  SlidersHorizontal,
   ChevronDown,
   CalendarDays,
   ShieldCheck,
@@ -179,9 +178,6 @@ export function AnalysisTab({
   const traffic = view.traffic;
   const setTraffic = (t: TrafficMode) => patch({ traffic: t });
   const excludedKinds = useMemo(() => kindsForTraffic(traffic) as PromoKind[], [traffic]);
-  const excludedIds = useMemo(() => new Set(view.excludedIds), [view.excludedIds]);
-  const setExcludedIds = (next: Set<string>) => patch({ excludedIds: [...next] });
-
   const [promoPanelOpen, setPromoPanelOpen] = useState(false);
 
   // Both registries come from the shared store: saved on the Promotions or
@@ -290,38 +286,52 @@ export function AnalysisTab({
   );
   const boostedUrls = useMemo(() => A.boostedUrlSet(boosts), [boosts]);
   const paidUrls = useMemo(() => A.boostedUrlSet(boosts, ['boost']), [boosts]);
-  const featuredUrls = useMemo(() => A.boostedUrlSet(boosts, ['featured']), [boosts]);
-  const hasPaid = paidUrls.size > 0;
-  const hasFeatured = featuredUrls.size > 0;
 
   /**
    * Entries the analysis strips out. The category switch is a shortcut; any
    * individually ticked promotion is excluded on top of it, so a single
    * campaign can be isolated without excluding everything of its kind.
    */
-  const excludedEntries = useMemo(() => {
-    const byKind = boosts.filter((e) => excludedKinds.includes(e.kind));
-    const ids = new Set(byKind.map((e) => e.id));
-    const extra = boosts.filter((e) => excludedIds.has(e.id) && !ids.has(e.id));
-    return [...byKind, ...extra];
-  }, [boosts, excludedKinds, excludedIds]);
+  /**
+   * What the Traffic switch removes. This is a separate idea from the promotion
+   * layer above: Traffic answers "show me the account without paid reach",
+   * while the layer answers "mark and break out these specific pushes".
+   */
+  /**
+   * Promotions switched on by the reader.
+   *
+   * Empty by default — and empty means the charts stay silent about promotions
+   * entirely: no shaded windows, no ⚡ badges, no paid-versus-earned breakdown.
+   * The dashboard opens showing the account's numbers, not a commentary on
+   * which of them were bought. Ticking promotions turns exactly those on.
+   */
+  const activePromoIds = useMemo(() => new Set(view.activePromoIds), [view.activePromoIds]);
+  const setActivePromoIds = (next: Set<string>) => patch({ activePromoIds: [...next] });
+  const promoLayerOn = activePromoIds.size > 0;
+  /** the registry entries currently switched on */
+  const activeBoosts = useMemo(
+    () => boosts.filter((b) => activePromoIds.has(b.id)),
+    [boosts, activePromoIds]
+  );
+
+
+  const excludedEntries = useMemo(
+    () => boosts.filter((e) => excludedKinds.includes(e.kind)),
+    [boosts, excludedKinds]
+  );
   /** shot URLs removed entirely from rankings/concentration */
   const excludedUrls = useMemo(() => A.boostedUrlSet(excludedEntries), [excludedEntries]);
 
   const excludeBoosted = excludedEntries.length > 0;
-  const filterActive = excludedKinds.length > 0 || excludedIds.size > 0;
+  const filterActive = excludedKinds.length > 0;
 
   /** short label for the filter button, so its state is readable at a glance */
   const filterSummary = useMemo(() => {
     const parts: string[] = [];
     if (excludedKinds.includes('boost')) parts.push('paid boosts');
     if (excludedKinds.includes('featured')) parts.push('featured');
-    const singles = [...excludedIds].filter(
-      (id) => !excludedKinds.includes(boosts.find((b) => b.id === id)?.kind as PromoKind)
-    ).length;
-    if (singles > 0) parts.push(`${singles} campaign${singles > 1 ? 's' : ''}`);
-    return parts.length ? `Without ${parts.join(' and ')}` : 'Showing all traffic';
-  }, [excludedKinds, excludedIds, boosts]);
+    return parts.length ? `without ${parts.join(' and ')}` : '';
+  }, [excludedKinds]);
 
 
   const boostGain = useMemo(() => {
@@ -332,8 +342,8 @@ export function AnalysisTab({
 
   /** paid / featured / organic split of daily gains (always unfiltered) */
   const attribution = useMemo(
-    () => A.attributionByDate(matrix, boosts, attrMetric),
-    [matrix, boosts, attrMetric]
+    () => A.attributionByDate(matrix, activeBoosts, attrMetric),
+    [matrix, activeBoosts, attrMetric]
   );
 
   // ----- Range resolution -----
@@ -461,14 +471,11 @@ export function AnalysisTab({
       const b = labelFor(e > endStr ? endStr : e);
       if (a?.first && b?.last) windows.push({ x1: a.first, x2: b.last, kind });
     };
-    boosts.forEach((b) => {
-      // a window the reader has filtered out is not shaded
-      if (excludedUrls.size > 0 && excludedEntries.some((e) => e.id === b.id)) return;
-      push(b.start, b.end, b.kind);
-    });
+    // Only promotions the reader switched on are marked.
+    activeBoosts.forEach((b) => push(b.start, b.end, b.kind));
     if (!excludeBoosted) suspected.forEach((s) => push(s.start, s.end, 'suspected'));
     return windows;
-  }, [boosts, suspected, trendData, startStr, endStr, excludeBoosted, excludedEntries, excludedUrls]);
+  }, [activeBoosts, suspected, trendData, startStr, endStr, excludeBoosted]);
 
   // ----- Engagement rate + views series -----
   const engSeries = useMemo(() => {
@@ -575,7 +582,8 @@ export function AnalysisTab({
 
     const boostDates = new Set<string>();
     const featuredDates = new Set<string>();
-    boosts.forEach((b) =>
+    // Rings appear only for promotions the reader switched on.
+    activeBoosts.forEach((b) =>
       dates.forEach((d) => {
         if (!A.dateInBoostWindow(d, b)) return;
         if (b.kind === 'boost') boostDates.add(d);
@@ -685,7 +693,7 @@ export function AnalysisTab({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    dates, matrix, boostGain, excludeBoosted, heatMetric, boosts, suspected,
+    dates, matrix, boostGain, excludeBoosted, heatMetric, activeBoosts, suspected,
     firstDate, lastDate, heatScope, startStr, endStr,
   ]);
 
@@ -787,8 +795,8 @@ export function AnalysisTab({
       };
       const inRange = (b: BoostEntry) =>
         b.shotUrl === shot.url && (b.end || endStr) >= startStr && b.start <= endStr;
-      const paidInRange = boosts.some((b) => b.kind === 'boost' && inRange(b));
-      const featuredInRange = boosts.some((b) => b.kind === 'featured' && inRange(b));
+      const paidInRange = activeBoosts.some((b) => b.kind === 'boost' && inRange(b));
+      const featuredInRange = activeBoosts.some((b) => b.kind === 'featured' && inRange(b));
       return { shot, growth, totals: totalsRec, paidInRange, featuredInRange };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -921,9 +929,10 @@ export function AnalysisTab({
       likes: shot.likes || 0,
       saves: shot.saves || 0,
       project: projectMap.get(shot.url) || 'Other',
-      boosted: boostedUrls.has(shot.url),
+      // Only marked when the reader has switched that promotion on.
+      boosted: activeBoosts.some((b) => b.shotUrl === shot.url),
     }));
-  }, [filteredShots, excludeBoosted, excludedUrls, projectMap, boostedUrls]);
+  }, [filteredShots, excludeBoosted, excludedUrls, projectMap, activeBoosts]);
 
   // ----- Engagement mix (fixed: range-aware + safe empty state) -----
   const engagementMix = useMemo(() => {
@@ -1372,136 +1381,131 @@ export function AnalysisTab({
                 </Seg>
 
                 {/*
-                  Every registered promotion is listed here, always — one, or
-                  twenty. An earlier version only rendered this with more than
-                  one promotion, which meant a single registered boost could not
-                  be filtered at all.
-                */}
-                {(
-                  <div className="relative">
-                    <button
-                      onClick={() => setPromoPanelOpen(!promoPanelOpen)}
-                      className={`h-9 flex items-center gap-1.5 px-3 rounded-xl text-[11px] font-bold border transition-all ${
-                        excludedIds.size > 0
-                          ? 'bg-pink-50 border-pink-200 text-pink-700'
-                          : 'bg-white border-slate-200 text-slate-500 hover:border-pink-200'
-                      }`}
-                      title="Remove one specific campaign instead of a whole category"
-                    >
-                      <SlidersHorizontal className="w-3.5 h-3.5" />
-                      {excludedIds.size > 0
-                        ? `${excludedIds.size} of ${boosts.length} removed`
-                        : `Pick promotions (${boosts.length})`}
-                      <ChevronDown className={`w-3 h-3 transition-transform ${promoPanelOpen ? 'rotate-180' : ''}`} />
-                    </button>
+                  Promotion layer.
 
-                    {promoPanelOpen && (
-                      <>
-                        <div className="fixed inset-0 z-40" onClick={() => setPromoPanelOpen(false)} />
-                        <div className="absolute z-50 right-0 mt-2 w-[340px] bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-200/70 overflow-hidden">
-                          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60 flex items-start justify-between gap-2">
-                            <div>
-                              <p className="text-[11px] font-extrabold text-slate-800">
-                                Remove specific promotions
-                              </p>
-                              <p className="text-[10px] text-slate-400 font-medium mt-0.5 leading-snug">
-                                Tick any boost or feature to take it out of every chart. Pick one, several, or all.
-                              </p>
-                            </div>
-                            {boosts.length > 1 && (
-                              <button
-                                onClick={() =>
-                                  setExcludedIds(
-                                    excludedIds.size === boosts.length
-                                      ? new Set()
-                                      : new Set(boosts.map((b) => b.id))
-                                  )
-                                }
-                                className="flex-shrink-0 text-[10px] font-bold text-pink-600 hover:underline whitespace-nowrap"
-                              >
-                                {excludedIds.size === boosts.length ? 'None' : 'All'}
-                              </button>
-                            )}
+                  Off until asked for. With nothing ticked the charts behave as
+                  if promotions were never recorded — no shaded windows, no
+                  badges, no paid-versus-earned split — so the tab opens on the
+                  account's numbers rather than a commentary on which of them
+                  were bought. Tick any number of boosts or features and exactly
+                  those switch on across every chart.
+                */}
+                <div className="relative">
+                  <button
+                    onClick={() => setPromoPanelOpen(!promoPanelOpen)}
+                    className={`h-9 flex items-center gap-1.5 px-3 rounded-xl text-[11px] font-bold border transition-all ${
+                      promoLayerOn
+                        ? 'bg-pink-50 border-pink-200 text-pink-700'
+                        : 'bg-white border-slate-200 text-slate-500 hover:border-pink-200'
+                    }`}
+                    title="Switch specific boosts or features on to see them in the charts"
+                  >
+                    <Zap className={`w-3.5 h-3.5 ${promoLayerOn ? 'text-pink-500' : 'text-slate-400'}`} />
+                    {promoLayerOn
+                      ? `${activePromoIds.size} of ${boosts.length} on`
+                      : `Promotions (${boosts.length})`}
+                    <ChevronDown className={`w-3 h-3 transition-transform ${promoPanelOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {promoPanelOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setPromoPanelOpen(false)} />
+                      <div className="absolute z-50 right-0 mt-2 w-[360px] bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-200/70 overflow-hidden">
+                        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60 flex items-start justify-between gap-2">
+                          <div>
+                            <p className="text-[11px] font-extrabold text-slate-800 flex items-center gap-1.5">
+                              Promotions <InfoTip k="promoPicker" />
+                            </p>
+                            <p className="text-[10px] text-slate-400 font-medium mt-0.5 leading-snug">
+                              {promoLayerOn
+                                ? 'The charts are marking the promotions ticked below.'
+                                : 'Charts are showing plain data. Tick any to bring them into the dashboard.'}
+                            </p>
                           </div>
-                          <div className="p-2 max-h-72 overflow-y-auto">
-                            {(['boost', 'featured'] as PromoKind[]).map((kind) => {
-                              const group = boosts.filter((b) => b.kind === kind);
-                              if (group.length === 0) return null;
-                              return (
-                                <div key={kind} className="mb-1 last:mb-0">
-                                  <p className="px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-slate-400">
-                                    {kind === 'boost' ? 'Paid boosts' : 'Featured'} ({group.length})
-                                  </p>
-                                  {group.map((b) => {
-                                    const forced = excludedKinds.includes(b.kind);
-                                    const checked = forced || excludedIds.has(b.id);
-                                    const shot = shots.find((sh) => sh.url === b.shotUrl);
-                                    return (
-                                      <label
-                                        key={b.id}
-                                        className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl transition-colors ${
-                                          forced ? 'opacity-45' : 'hover:bg-slate-50 cursor-pointer'
-                                        }`}
-                                        title={
-                                          forced
-                                            ? `Already removed by the "${traffic === 'no-paid' ? 'No paid' : 'Organic'}" setting`
-                                            : undefined
-                                        }
-                                      >
-                                        <input
-                                          type="checkbox"
-                                          checked={checked}
-                                          disabled={forced}
-                                          onChange={() => {
-                                            const next = new Set(excludedIds);
-                                            if (next.has(b.id)) next.delete(b.id);
-                                            else next.add(b.id);
-                                            setExcludedIds(next);
-                                          }}
-                                          className="accent-pink-500 w-3.5 h-3.5 flex-shrink-0"
-                                        />
-                                        {b.kind === 'boost' ? (
-                                          <Zap className="w-3 h-3 text-pink-500 flex-shrink-0" />
-                                        ) : (
-                                          <Star className="w-3 h-3 text-indigo-500 flex-shrink-0" />
-                                        )}
-                                        <span className="min-w-0 flex-1">
-                                          <span className="block text-[11px] font-bold text-slate-700 truncate leading-tight">
-                                            {shot ? A.shotTitle(shot) : b.shotUrl}
-                                          </span>
-                                          <span className="block text-[9px] font-mono font-bold text-slate-400">
-                                            {b.start} → {b.end || 'running'} · +
-                                            {A.gainedInWindow(matrix, b, 'views').toLocaleString()} views
-                                          </span>
-                                        </span>
-                                      </label>
-                                    );
-                                  })}
-                                </div>
-                              );
-                            })}
-                          </div>
-                          <div className="px-3 py-2.5 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between">
-                            <button
-                              onClick={() => setExcludedIds(new Set())}
-                              disabled={excludedIds.size === 0}
-                              className="text-[10px] font-bold text-slate-500 hover:text-pink-600 disabled:opacity-40 transition-colors"
-                            >
-                              Clear campaign filters
-                            </button>
-                            <button
-                              onClick={() => onOpenPromotions?.()}
-                              className="text-[10px] font-bold text-slate-500 hover:text-pink-600 transition-colors flex items-center gap-1"
-                            >
-                              <Zap className="w-3 h-3 text-pink-500" />
-                              Manage
-                            </button>
-                          </div>
+                          <button
+                            onClick={() =>
+                              setActivePromoIds(
+                                activePromoIds.size === boosts.length
+                                  ? new Set()
+                                  : new Set(boosts.map((b) => b.id))
+                              )
+                            }
+                            className="flex-shrink-0 text-[10px] font-bold text-pink-600 hover:underline whitespace-nowrap"
+                          >
+                            {activePromoIds.size === boosts.length ? 'None' : 'All'}
+                          </button>
                         </div>
-                      </>
-                    )}
-                  </div>
-                )}
+
+                        <div className="p-2 max-h-72 overflow-y-auto">
+                          {(['boost', 'featured'] as PromoKind[]).map((kind) => {
+                            const group = boosts.filter((b) => b.kind === kind);
+                            if (group.length === 0) return null;
+                            return (
+                              <div key={kind} className="mb-1 last:mb-0">
+                                <p className="px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-slate-400">
+                                  {kind === 'boost' ? 'Boosted (paid)' : 'Featured (free)'} ({group.length})
+                                </p>
+                                {group.map((b) => {
+                                  const on = activePromoIds.has(b.id);
+                                  const shot = shots.find((sh) => sh.url === b.shotUrl);
+                                  return (
+                                    <label
+                                      key={b.id}
+                                      className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={on}
+                                        onChange={() => {
+                                          const next = new Set(activePromoIds);
+                                          if (next.has(b.id)) next.delete(b.id);
+                                          else next.add(b.id);
+                                          setActivePromoIds(next);
+                                        }}
+                                        className="accent-pink-500 w-3.5 h-3.5 flex-shrink-0"
+                                      />
+                                      {b.kind === 'boost' ? (
+                                        <Zap className="w-3 h-3 text-pink-500 flex-shrink-0" />
+                                      ) : (
+                                        <Star className="w-3 h-3 text-indigo-500 flex-shrink-0" />
+                                      )}
+                                      <span className="min-w-0 flex-1">
+                                        <span className="block text-[11px] font-bold text-slate-700 truncate leading-tight">
+                                          {shot ? A.shotTitle(shot) : b.shotUrl}
+                                        </span>
+                                        <span className="block text-[9px] font-mono font-bold text-slate-400">
+                                          {b.start} → {b.end || 'running'} · +
+                                          {A.gainedInWindow(matrix, b, 'views').toLocaleString()} views
+                                        </span>
+                                      </span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <div className="px-3 py-2.5 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between">
+                          <button
+                            onClick={() => setActivePromoIds(new Set())}
+                            disabled={!promoLayerOn}
+                            className="text-[10px] font-bold text-slate-500 hover:text-pink-600 disabled:opacity-40 transition-colors"
+                          >
+                            Turn all off
+                          </button>
+                          <button
+                            onClick={() => onOpenPromotions?.()}
+                            className="text-[10px] font-bold text-slate-500 hover:text-pink-600 transition-colors flex items-center gap-1"
+                          >
+                            <Zap className="w-3 h-3 text-pink-500" />
+                            Manage
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1615,31 +1619,6 @@ export function AnalysisTab({
               {analysisStart && ` Reliable growth measurement starts ${analysisStart}.`}
             </p>
           </div>
-        </div>
-      )}
-
-      {/* ===================== ACTIVE FILTER NOTICE ===================== */}
-      {/*
-        When a filter is on, every number below is a what-if rather than what
-        happened. That has to be impossible to miss — a highlighted control in
-        the bar above is not enough once you have scrolled past it.
-      */}
-      {filterActive && (
-        <div className="bg-pink-50 border border-pink-200 rounded-2xl px-5 py-3 flex flex-wrap items-center gap-3">
-          <SlidersHorizontal className="w-4 h-4 text-pink-600 flex-shrink-0" />
-          <p className="text-xs font-extrabold text-pink-900">
-            Filtered view — {filterSummary.toLowerCase()}
-          </p>
-          <p className="text-[11px] text-pink-700 font-medium">
-            Every chart below is showing what the period would look like without that traffic, not what actually
-            happened.
-          </p>
-          <button
-            onClick={() => patch({ traffic: 'all', excludedIds: [] })}
-            className="ml-auto h-7 px-3 rounded-lg text-[10px] font-bold text-pink-700 bg-white border border-pink-200 hover:bg-pink-100 transition-colors"
-          >
-            Show everything
-          </button>
         </div>
       )}
 
@@ -1862,7 +1841,7 @@ export function AnalysisTab({
                     maxBarSize={26}
                     fillOpacity={0.85}
                   />
-                  {!excludeBoosted && boosts.length > 0 && (
+                  {!excludeBoosted && promoLayerOn && (
                     <Bar dataKey="Boost" hide={trendLegend.hidden('Boost')} name="of which promoted" fill="#0F172A" fillOpacity={0.25} radius={[4, 4, 0, 0]} maxBarSize={26} />
                   )}
                 </>
@@ -1887,14 +1866,14 @@ export function AnalysisTab({
           Click a legend label to hide that series <InfoTip k="legendToggle" />
         </p>
 
-        {(boosts.length > 0 || suspected.length > 0) && (
+        {(promoLayerOn || suspected.length > 0) && (
           <div className="mt-2 flex flex-wrap items-center gap-4 text-[10px] font-bold text-slate-400">
-            {hasPaid && (
+            {promoLayerOn && activeBoosts.some((b) => b.kind === 'boost') && (
               <span className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded bg-pink-500/20 border border-pink-300 inline-block" /> paid boost window
               </span>
             )}
-            {hasFeatured && (
+            {promoLayerOn && activeBoosts.some((b) => b.kind === 'featured') && (
               <span className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded bg-indigo-500/20 border border-indigo-300 inline-block" /> featured window
               </span>
@@ -1909,7 +1888,8 @@ export function AnalysisTab({
       </div>
 
       {/* ===================== TRAFFIC ATTRIBUTION ===================== */}
-      {boosts.length > 0 && (
+      {/* Only meaningful once the reader has switched promotions on. */}
+      {promoLayerOn && (
         <div className={`${CARD} p-6`}>
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-5">
             <div>
@@ -2593,12 +2573,12 @@ export function AnalysisTab({
             <span className="flex items-center gap-1.5">
               <span className="w-3.5 h-3.5 rounded-[3px] border border-dashed border-slate-400 bg-slate-100" /> baseline day
             </span>
-            {paidUrls.size > 0 && (
+            {promoLayerOn && activeBoosts.some((b) => b.kind === 'boost') && (
               <span className="flex items-center gap-1.5">
                 <span className="w-3.5 h-3.5 rounded-[3px] ring-2 ring-pink-400 bg-pink-100" /> paid boost
               </span>
             )}
-            {featuredUrls.size > 0 && (
+            {promoLayerOn && activeBoosts.some((b) => b.kind === 'featured') && (
               <span className="flex items-center gap-1.5">
                 <span className="w-3.5 h-3.5 rounded-[3px] ring-2 ring-indigo-400 bg-indigo-50" /> featured
               </span>
@@ -2919,7 +2899,7 @@ export function AnalysisTab({
         <p className="text-[10px] text-slate-400 font-semibold mt-2.5">
           Points far above the general cloud converted unusually well for their reach; points far to the right with a
           low height got traffic without response.
-          {boostedUrls.size > 0 && ' Pink points are registered promotions.'}
+          {promoLayerOn && ' Pink points are the promotions you switched on.'}
         </p>
       </div>
       </section>
