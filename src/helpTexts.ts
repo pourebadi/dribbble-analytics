@@ -42,11 +42,33 @@ export const HELP: Record<string, HelpText> = {
       'counted as paid, so the three bands always sum to the unfiltered daily gain. The chart only appears ' +
       'once at least one promotion is registered.',
   },
-  kpis: {
-    title: 'Gained in range',
+  kpi_views: {
+    title: 'Views gained',
     body:
-      'How much each metric grew inside the selected window (end value minus the value on the day ' +
-      'before the window). The small % compares this window against the previous window of equal length.',
+      'New views earned inside the selected window — the sum of each day\'s growth, not a cumulative total. ' +
+      'The percentage compares this window against the immediately preceding window of the same length, so ' +
+      '+12% means the portfolio earned 12% more views than in the equivalent previous period. Days excluded ' +
+      'for data quality contribute nothing.',
+  },
+  kpi_likes: {
+    title: 'Likes gained',
+    body:
+      'New likes earned in the window. This can be lower than expected, or even flat, because likes are ' +
+      'reversible on Dribbble — a user unliking, or an account being removed, subtracts from the total. ' +
+      'Compare it against views gained to judge whether new traffic is actually connecting.',
+  },
+  kpi_saves: {
+    title: 'Saves gained',
+    body:
+      'New bucket saves in the window. Saves are the strongest intent signal available — someone filed your ' +
+      'work away to come back to it. A rising save count alongside flat likes usually means the work is being ' +
+      'treated as reference material rather than casual scrolling.',
+  },
+  kpi_comments: {
+    title: 'Comments gained',
+    body:
+      'New comments in the window. This is the rarest metric because commenting takes the most effort, so ' +
+      'small absolute numbers are normal and a single-digit change can still be meaningful.',
   },
   growthTrend: {
     title: 'Growth trend',
@@ -178,10 +200,12 @@ export const HELP: Record<string, HelpText> = {
   momentum: {
     title: 'Momentum',
     body:
-      'Splits the selected range in half and compares each shot\'s average daily views in the recent half against ' +
-      'the earlier half. "Accelerating" shots are picking up speed — worth boosting or building on. "Cooling down" ' +
-      'shots are past their peak, which is normal for older work but worth noticing if a shot is only days old. ' +
-      'Excluded start-up days never enter this calculation.',
+      'The range is split in half and each shot\'s average views per day in the recent half is compared against ' +
+      'the earlier half. Bars to the right (green) are gaining pace, bars to the left (red) are losing it, and the ' +
+      'length is the change in views per day — so a +40 bar means that shot now earns forty more views every day ' +
+      'than it did. The badge at the top does the same for the portfolio as a whole. Older shots naturally drift ' +
+      'left as launch attention fades; a *new* shot drifting left is the signal worth acting on. Days excluded for ' +
+      'data quality never enter this calculation.',
   },
   promoPaid: {
     title: 'Paid campaigns',
@@ -237,31 +261,20 @@ export const HELP: Record<string, HelpText> = {
   projectStack: {
     title: 'Views composition by project',
     body:
-      'Stacked total views over time, split by project, for the top six projects. The thickness of each band shows ' +
-      'how much of the portfolio each client carries, and whether that balance is shifting as new work lands. ' +
-      'Needs at least two logged days in the selected range.',
+      'How the portfolio\'s attention is divided between the top six projects, day by day. ' +
+      '"Share %" normalises every day to 100%, so a band widening genuinely means that project is taking a ' +
+      'larger slice — this is the mode that answers "is the balance shifting?". "Absolute" shows raw stacked ' +
+      'views, where every band grows simply because the counters do. Click any legend item to hide that project ' +
+      'and compare the rest. Needs at least two logged days in the range.',
   },
   cadence: {
     title: 'Posting cadence vs performance',
     body:
-      'Bars are how many shots were published each month; the line is the average views those shots earned. ' +
-      'Read them together: if the line falls as the bars rise, extra volume is diluting attention rather than ' +
-      'compounding it. Note this uses all-time totals per shot, so recent months look lower simply because their ' +
-      'shots have had less time to accumulate.',
-  },
-  velocity: {
-    title: 'Period growth velocity',
-    body:
-      'Compares consecutive periods the same length as your selected range — current vs previous vs the one before ' +
-      'that — to show whether momentum is building or fading. Views use the left axis and likes the right, because ' +
-      'they differ by orders of magnitude. Excluded start-up days never contribute.',
-  },
-  tagRadar: {
-    title: 'Top tags ROI',
-    body:
-      'The six tags with the highest total views, plotted by the likes they earned. A wide, even shape means your ' +
-      'strong tags convert consistently; a spiky shape means one or two tags carry all the response. Pair it with ' +
-      'the Tag Performance Matrix, which separates reach from conversion.',
+      'Bars are how many shots were published each month; the line is what each one earns. Read them together: ' +
+      'if the line falls as the bars rise, extra volume is diluting attention rather than compounding it. ' +
+      '"Per day" divides each shot\'s views by how many days it has been live, which makes months comparable — ' +
+      'without it, recent months always look worse purely because their shots are younger. "Lifetime" shows the ' +
+      'raw totals if you want the unadjusted picture.',
   },
   shotMatrix: {
     title: 'Shot performance matrix',
@@ -292,6 +305,62 @@ export const HELP: Record<string, HelpText> = {
       'Cumulative totals for this individual shot on each day it was logged. The line only rises because these are ' +
       'running counters. Two or more logged days are needed before a trend can be drawn. For growth *per day* and ' +
       'range comparisons, use the Growth Analysis tab.',
+  },
+  promoImpressions: {
+    title: 'Impressions bought',
+    body:
+      'Total impression budget purchased across all registered paid campaigns. An impression is Dribbble showing ' +
+      'your shot in a feed or search result — it is not a view. The gap between impressions and views is exactly ' +
+      'what CTR measures, so entering this number is what makes campaign efficiency comparable.',
+  },
+  promoRegistry: {
+    title: 'Registry',
+    body:
+      'Every promotion recorded for this profile. "Views gained" and "Interactions" are measured from the daily ' +
+      'log inside each window — real numbers, not estimates — so a campaign with a blank end date keeps ' +
+      'accumulating until you close it. Removing a row makes the affected days count as organic again across ' +
+      'every chart. Changes only take effect once you press Save registry.',
+  },
+  dashViewsPerDay: {
+    title: 'Views per day',
+    body:
+      'All-time views divided by how many days the shot has been live. It puts old and new shots on the same ' +
+      'footing — a two-year-old shot with 20,000 views is earning far less per day than a two-week-old one with ' +
+      '3,000. Use it to spot which work is still actively pulling traffic rather than just carrying a big total.',
+  },
+  dashRank: {
+    title: 'Portfolio rank',
+    body:
+      'Where this shot sits when the whole portfolio is ordered by views, plus how it compares to the portfolio ' +
+      'average. "2.4× portfolio avg" means it earned nearly two and a half times what a typical shot here earns. ' +
+      'A handful of shots ranking far above average is normal — see Portfolio Concentration in Growth Analysis.',
+  },
+  dashEngagement: {
+    title: 'Engagement',
+    body:
+      'Likes plus saves plus comments, divided by views — the share of viewers who did something rather than just ' +
+      'scrolling past. It is reach-independent, so a small shot can beat a viral one here. A low rate on a ' +
+      'high-view shot often points to feed or paid traffic rather than an audience that connected with the work.',
+  },
+  dashLastGain: {
+    title: 'Last sync gain',
+    body:
+      'Views this shot picked up between the two most recent logged days. It needs at least two days of history, ' +
+      'and it reads zero on a day whose scrape was excluded for data quality. For trends over a period rather ' +
+      'than a single day, use the Growth Analysis tab.',
+  },
+  dashQuickFind: {
+    title: 'Quick find',
+    body:
+      'Jump straight to a shot by searching its title, tag or project. Selecting one filters the table to it and ' +
+      'opens its detail panel, which is faster than paging through the list when you know what you are looking for.',
+  },
+  legendToggle: {
+    title: 'Hiding series',
+    body:
+      'Charts with several series can be hard to read at once. Click any legend label to hide that series and ' +
+      'click again to bring it back — useful for isolating one line, or for removing a large series whose scale ' +
+      'flattens the others. A "Show all series" button appears while anything is hidden.',
   },
   historyLedger: {
     title: 'Daily historical ledger',

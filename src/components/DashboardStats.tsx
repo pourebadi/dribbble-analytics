@@ -5,6 +5,7 @@ import { AnalysisTab } from './AnalysisTab.tsx';
 import { PromotionsPage } from './PromotionsPage.tsx';
 import { HistoryTab } from './HistoryTab.tsx';
 import { InfoTip } from './InfoTip.tsx';
+import { ShotPicker } from './ShotPicker.tsx';
 import { C, compact, tooltipStyle, tooltipLabelStyle } from '../chartTheme.ts';
 import { 
   Eye, 
@@ -50,6 +51,7 @@ export function DashboardStats({
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [expandedShotUrl, setExpandedShotUrl] = useState<string | null>(null);
+  const [quickFindUrl, setQuickFindUrl] = useState('');
   // Chart states
   // Metric shown in the per-shot sparkline inside an expanded table row.
   const [chartMetric] = useState<'likes' | 'views' | 'saves' | 'comments'>('views');
@@ -463,6 +465,30 @@ export function DashboardStats({
                 </div>
                 
                 <div className="flex flex-wrap items-center gap-3">
+                  {/* Quick find — jump straight to one shot */}
+                  {validShots.length > 8 && (
+                    <div className="w-full sm:w-72">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1 mb-1">
+                        Quick find <InfoTip k="dashQuickFind" />
+                      </span>
+                      <ShotPicker
+                        shots={validShots}
+                        value={quickFindUrl}
+                        onChange={(url) => {
+                          const target = validShots.find((s) => s.url === url);
+                          setQuickFindUrl(url);
+                          if (target) {
+                            // filter the table down to it, then open its panel
+                            setSearchQuery(getShotTitle(target));
+                            setSelectedTag(null);
+                            setCurrentPage(1);
+                            setExpandedShotUrl(url);
+                          }
+                        }}
+                      />
+                    </div>
+                  )}
+
                   {/* Export to CSV button */}
                   {filteredShots.length > 0 && (
                     <button
@@ -519,8 +545,11 @@ export function DashboardStats({
                   {/* Clear filters button */}
                   {(searchQuery || selectedTag || sortBy !== 'likes' || sortOrder !== 'desc') && (
                     <button
-                      onClick={clearFilters}
-                      title="Reset search, tag filter and sorting back to defaults."
+                      onClick={() => {
+                        clearFilters();
+                        setQuickFindUrl('');
+                      }}
+                      title="Reset search, tag filter, quick find and sorting back to defaults."
                       className="px-4 py-2 text-xs font-semibold border border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-1.5 transition-all"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -792,22 +821,22 @@ export function DashboardStats({
                                       {/* Insight chips — meaningful even from the first sync */}
                                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
                                         <div className="bg-white border border-slate-200/60 rounded-xl px-3 py-2">
-                                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Views / Day</p>
+                                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">Views / Day <InfoTip k="dashViewsPerDay" /></p>
                                           <p className="text-sm font-black text-slate-800 font-mono">{viewsPerDay !== null ? viewsPerDay.toLocaleString() : '—'}</p>
                                           <p className="text-[9px] text-slate-400 font-medium">{daysSincePosted ? `live for ${daysSincePosted}d` : 'no publish date'}</p>
                                         </div>
                                         <div className="bg-white border border-slate-200/60 rounded-xl px-3 py-2">
-                                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Portfolio Rank</p>
+                                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">Portfolio Rank <InfoTip k="dashRank" /></p>
                                           <p className="text-sm font-black text-slate-800 font-mono">{shotRank ? `#${shotRank}` : '—'}<span className="text-[10px] text-slate-400 font-semibold"> / {validShots.length}</span></p>
                                           <p className={`text-[9px] font-bold ${vsAvg !== null && vsAvg >= 1 ? 'text-emerald-600' : 'text-slate-400'}`}>{vsAvg !== null ? `${vsAvg.toFixed(1)}× portfolio avg` : ''}</p>
                                         </div>
                                         <div className="bg-white border border-slate-200/60 rounded-xl px-3 py-2">
-                                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Engagement</p>
+                                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">Engagement <InfoTip k="dashEngagement" /></p>
                                           <p className="text-sm font-black text-slate-800 font-mono">{fullEngagement}%</p>
                                           <p className="text-[9px] text-slate-400 font-medium">likes+saves+comments / views</p>
                                         </div>
                                         <div className="bg-white border border-slate-200/60 rounded-xl px-3 py-2">
-                                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Last Sync Gain</p>
+                                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">Last Sync Gain <InfoTip k="dashLastGain" /></p>
                                           <p className={`text-sm font-black font-mono ${lastGain !== null ? 'text-emerald-600' : 'text-slate-400'}`}>{lastGain !== null ? `+${lastGain.toLocaleString()}` : '—'}</p>
                                           <p className="text-[9px] text-slate-400 font-medium">{lastGain !== null ? 'views vs previous day' : 'needs 2+ logged days'}</p>
                                         </div>

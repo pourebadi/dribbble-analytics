@@ -39,11 +39,6 @@ import {
   ReferenceLine,
   ScatterChart,
   Scatter,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Radar,
   Cell,
   PieChart,
   Pie,
@@ -64,6 +59,7 @@ import {
   ShieldCheck,
   Activity,
   Gauge,
+  Sparkle,
 } from 'lucide-react';
 
 import { Shot, Profile } from '../types.ts';
@@ -73,7 +69,8 @@ import { BoostEntry, fetchBoosts } from '../boosts.ts';
 import * as A from '../analytics.ts';
 import type { MetricKey } from '../analytics.ts';
 import { assessDataQuality, QUALITY_LABEL } from '../dataQuality.ts';
-import { C, SERIES, compact, tooltipStyle, tooltipLabelStyle, gridProps, legendProps } from '../chartTheme.ts';
+import { C, SERIES, compact, tooltipStyle, tooltipLabelStyle, gridProps } from '../chartTheme.ts';
+import { useLegendToggle, LegendResetHint } from '../useLegendToggle.tsx';
 
 // ---------------------------------------------------------------------------
 // Small shared UI atoms
@@ -163,6 +160,15 @@ export function AnalysisTab({
   const [attrMetric, setAttrMetric] = useState<MetricKey>('views');
   const [mixScope, setMixScope] = useState<'range' | 'all'>('range');
   const [shotMatrixAxis, setShotMatrixAxis] = useState<'likes' | 'saves'>('likes');
+  const [stackMode, setStackMode] = useState<'share' | 'absolute'>('share');
+  const [cadenceMode, setCadenceMode] = useState<'normalized' | 'raw'>('normalized');
+
+  // Legend switches — dense charts become readable when a series can be hidden.
+  const trendLegend = useLegendToggle();
+  const attrLegend = useLegendToggle();
+  const engLegend = useLegendToggle();
+  const stackLegend = useLegendToggle();
+  const cadenceLegend = useLegendToggle();
 
   useEffect(() => {
     let alive = true;
@@ -635,7 +641,7 @@ export function AnalysisTab({
       .sort((a, b) =>
         topShotsMode === 'growth' ? b.growth[metric] - a.growth[metric] : b.totals[metric] - a.totals[metric]
       )
-      .slice(0, 6);
+      .slice(0, 5);
 
   // ----- Projects table -----
   const projectRows = useMemo(() => {
@@ -691,22 +697,36 @@ export function AnalysisTab({
         const aligned = A.alignShot(shot, dates)[i];
         if (aligned) row[proj] += aligned.views;
       });
-      return row;
+      // Share mode answers "is the balance shifting?" — with raw cumulative
+      // totals every band just grows in parallel and the answer is invisible.
+      const total = names.reduce((a, n) => a + row[n], 0);
+      const share: any = { name: row.name };
+      names.forEach((n) => (share[n] = total > 0 ? +((row[n] / total) * 100).toFixed(2) : 0));
+      return { abs: row, share };
     });
-    return { rows, names, colorMap };
+    return {
+      abs: rows.map((r) => r.abs),
+      share: rows.map((r) => r.share),
+      names,
+      colorMap,
+    };
   }, [rangeIdx, dates, filteredShots, projectMap, projectRows]);
 
   // ----- Posting cadence vs performance (restored) -----
   const postingCadence = useMemo(() => {
-    const byMonth: Record<string, { posts: number; views: number }> = {};
+    const today = new Date();
+    const byMonth: Record<string, { posts: number; views: number; perDay: number }> = {};
     filteredShots.forEach((shot) => {
       if (!shot.posted) return;
       const d = new Date(shot.posted);
       if (isNaN(d.getTime())) return;
       const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-      if (!byMonth[key]) byMonth[key] = { posts: 0, views: 0 };
+      if (!byMonth[key]) byMonth[key] = { posts: 0, views: 0, perDay: 0 };
       byMonth[key].posts += 1;
       byMonth[key].views += shot.views || 0;
+      // Age-normalized: raw totals punish recent months purely for being young.
+      const ageDays = Math.max(1, Math.round((today.getTime() - d.getTime()) / 86400000));
+      byMonth[key].perDay += (shot.views || 0) / ageDays;
     });
     return Object.keys(byMonth)
       .sort()
@@ -721,61 +741,10 @@ export function AnalysisTab({
           name: label,
           Posts: byMonth[k].posts,
           AvgViews: Math.round(byMonth[k].views / byMonth[k].posts),
+          ViewsPerDay: Math.round(byMonth[k].perDay / byMonth[k].posts),
         };
       });
   }, [filteredShots]);
-
-  // ----- Top tags ROI radar (restored) -----
-  const tagRadar = useMemo(
-    () =>
-      [...tagMatrix.rows]
-        .sort((a, b) => b.totalViews - a.totalViews)
-        .slice(0, 6)
-        .map((t) => ({
-          name: t.short,
-          full: t.name,
-          Likes: Math.round((t.likeRate / 100) * t.avgViews),
-          AvgViews: t.avgViews,
-          shots: t.shots,
-        })),
-    [tagMatrix]
-  );
-
-  // ----- Period growth velocity (restored, quality-aware) -----
-  const velocity = useMemo(() => {
-    const spanDays = A.daysBetween(startStr, endStr) + 1;
-    const periods = [
-      { label: 'Current', from: startStr, to: endStr },
-      {
-        label: 'Previous',
-        from: A.isoAddDays(startStr, -spanDays),
-        to: A.isoAddDays(startStr, -1),
-      },
-      {
-        label: '2 periods ago',
-        from: A.isoAddDays(startStr, -spanDays * 2),
-        to: A.isoAddDays(startStr, -spanDays - 1),
-      },
-    ];
-    return periods
-      .map((p) => {
-        let views = 0;
-        let likes = 0;
-        let hasData = false;
-        dates.forEach((d, i) => {
-          if (i === 0 || matrix.excluded[i]) return;
-          if (d >= p.from && d <= p.to) {
-            views += gainAt('views', i);
-            likes += gainAt('likes', i);
-            hasData = true;
-          }
-        });
-        return { name: p.label, NewViews: views, NewLikes: likes, hasData };
-      })
-      .filter((p) => p.hasData)
-      .reverse();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dates, matrix, boostGain, excludeBoosted, startStr, endStr]);
 
   // ----- Shot performance matrix (restored) -----
   const shotMatrix = useMemo(() => {
@@ -958,14 +927,48 @@ export function AnalysisTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredShots, matrix, rangeIdx, dates, excludeBoosted, excludedEntries]);
 
-  const rising = useMemo(
-    () => [...momentum.rows].sort((a, b) => b.delta - a.delta).slice(0, 5),
-    [momentum]
-  );
-  const cooling = useMemo(
-    () => [...momentum.rows].sort((a, b) => a.delta - b.delta).slice(0, 5),
-    [momentum]
-  );
+  /** Diverging bar data: the biggest movers in each direction, on one axis. */
+  const momentumBars = useMemo(() => {
+    const up = [...momentum.rows].filter((r) => r.delta > 0).sort((a, b) => b.delta - a.delta).slice(0, 6);
+    const down = [...momentum.rows].filter((r) => r.delta < 0).sort((a, b) => a.delta - b.delta).slice(0, 6);
+    return [...up, ...down.reverse()].map((r) => {
+      const t = A.shotTitle(r.shot);
+      return {
+        name: t.length > 26 ? t.slice(0, 26) + '…' : t,
+        full: t,
+        url: r.shot.url,
+        delta: +r.delta.toFixed(1),
+        prevRate: r.prevRate,
+        nowRate: r.nowRate,
+        pct: r.pct,
+      };
+    });
+  }, [momentum]);
+
+  /** Portfolio-level momentum: overall daily rate now vs the earlier half. */
+  const portfolioMomentum = useMemo(() => {
+    const usable = rangeIdx.filter((i) => i > 0 && !matrix.excluded[i]);
+    if (usable.length < 4) return null;
+    const mid = Math.floor(usable.length / 2);
+    const older = usable.slice(0, mid);
+    const recent = usable.slice(mid);
+    const sum = (idxs: number[]) => idxs.reduce((a, i) => a + gainAt('views', i), 0);
+    const prevRate = older.length ? sum(older) / older.length : 0;
+    const nowRate = recent.length ? sum(recent) / recent.length : 0;
+    const pct = prevRate > 0 ? ((nowRate - prevRate) / prevRate) * 100 : null;
+    return { prevRate, nowRate, pct };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangeIdx, matrix, boostGain, excludeBoosted]);
+
+  /** Sparkline series for the KPI cards — daily gains inside the range. */
+  const kpiSpark = useMemo(() => {
+    const rec = {} as Record<MetricKey, { v: number }[]>;
+    A.METRIC_KEYS.forEach((m) => {
+      rec[m] = rangeIdx.filter((i) => i > 0).map((i) => ({ v: gainAt(m, i) }));
+    });
+    return rec;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangeIdx, matrix, boostGain, excludeBoosted]);
 
   // =========================================================================
   // Render
@@ -1146,13 +1149,13 @@ export function AnalysisTab({
         {kpis.map(({ metric, gained, pct }) => {
           const meta = METRIC_META[metric];
           return (
-            <div key={metric} className={`${CARD} p-5 relative overflow-hidden group`}>
+            <div key={metric} className={`${CARD} p-5 relative overflow-hidden group flex flex-col`}>
               <div className="flex items-center justify-between mb-2">
                 <div className="p-2 rounded-xl" style={{ background: meta.color + '14', color: meta.color }}>
                   <meta.Icon className="w-4.5 h-4.5" style={{ width: 18, height: 18 }} />
                 </div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                  Gained · {rangeLabel} {metric === 'views' && <InfoTip k="kpis" align="right" />}
+                  Gained · {rangeLabel} <InfoTip k={`kpi_${metric}`} />
                 </span>
               </div>
               <h3 className="text-2xl font-black text-slate-800 tracking-tight font-mono">
@@ -1178,17 +1181,50 @@ export function AnalysisTab({
               <span className="text-[10px] font-bold uppercase tracking-wider mt-2 inline-block" style={{ color: meta.color }}>
                 {meta.label}
               </span>
+
+              {/* momentum sparkline — the shape of the daily gains behind the number */}
+              {kpiSpark[metric].length >= 2 && (
+                <div className="h-10 -mx-5 -mb-5 mt-2 opacity-90 pointer-events-none">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={kpiSpark[metric]} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id={`spark_${metric}`} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={meta.color} stopOpacity={0.28} />
+                          <stop offset="100%" stopColor={meta.color} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <Area
+                        type="monotone"
+                        dataKey="v"
+                        stroke={meta.color}
+                        strokeWidth={1.75}
+                        fill={`url(#spark_${metric})`}
+                        isAnimationActive={false}
+                        dot={false}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
           );
         })}
       </section>
+
+      {/* ————— GROWTH OVER TIME ————— */}
+      <div className="pt-2">
+        <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.14em]">Growth over time</h2>
+        <p className="text-[11px] text-slate-400 font-medium mt-0.5">How the portfolio accumulated views and engagement across the selected range</p>
+        <div className="h-px bg-gradient-to-r from-slate-200 to-transparent mt-2.5" />
+      </div>
 
       {/* ===================== GROWTH TREND (REBUILT) ===================== */}
       <div className={`${CARD} p-6`}>
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-5">
           <div>
             <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
-              Growth Trend <InfoTip k="growthTrend" />
+              <TrendingUp className="w-4 h-4 text-slate-400" />
+            Growth Trend <InfoTip k="growthTrend" />
             </h3>
             <p className="text-xs text-slate-400 font-medium mt-0.5">
               {trendView === 'daily' ? 'Earned per day' : 'Running total'} · {rangeLabel}
@@ -1198,6 +1234,7 @@ export function AnalysisTab({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <LegendResetHint anyHidden={trendLegend.anyHidden} reset={trendLegend.reset} />
             <Seg>
               {A.METRIC_KEYS.map((m) => (
                 <SegBtn key={m} active={trendMetric === m} onClick={() => setTrendMetric(m)}>
@@ -1223,7 +1260,7 @@ export function AnalysisTab({
               <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 600 }} tickLine={false} axisLine={{ stroke: '#E2E8F0' }} interval="preserveStartEnd" minTickGap={24} />
               <YAxis tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 600 }} tickLine={false} axisLine={false} tickFormatter={(v: number) => (v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : String(v))} />
               <Tooltip contentStyle={chartTooltipStyle} formatter={(v: any, n: any) => [Number(v).toLocaleString(), n]} />
-              <Legend wrapperStyle={{ fontSize: 11, fontWeight: 700 }} />
+              <Legend {...trendLegend.legendProps} />
 
               {shadeWindows.map((w, i) => (
                 <ReferenceArea
@@ -1240,6 +1277,7 @@ export function AnalysisTab({
                 <>
                   <Bar
                     dataKey="Gain"
+                    hide={trendLegend.hidden('Gain')}
                     name={`${METRIC_META[trendMetric].label} gained`}
                     fill={METRIC_META[trendMetric].color}
                     radius={[4, 4, 0, 0]}
@@ -1247,13 +1285,14 @@ export function AnalysisTab({
                     fillOpacity={0.85}
                   />
                   {!excludeBoosted && boosts.length > 0 && (
-                    <Bar dataKey="Boost" name="of which promoted" fill="#0F172A" fillOpacity={0.25} radius={[4, 4, 0, 0]} maxBarSize={26} />
+                    <Bar dataKey="Boost" hide={trendLegend.hidden('Boost')} name="of which promoted" fill="#0F172A" fillOpacity={0.25} radius={[4, 4, 0, 0]} maxBarSize={26} />
                   )}
                 </>
               ) : (
                 <Area
                   type="monotone"
                   dataKey="Total"
+                  hide={trendLegend.hidden('Total')}
                   name={`Total ${METRIC_META[trendMetric].label.toLowerCase()}`}
                   stroke={METRIC_META[trendMetric].color}
                   fill={METRIC_META[trendMetric].color}
@@ -1261,13 +1300,17 @@ export function AnalysisTab({
                   strokeWidth={2.5}
                 />
               )}
-              <Line type="monotone" dataKey="MA7" name="7-bucket moving avg" stroke="#0F172A" strokeWidth={1.75} strokeDasharray="6 4" dot={false} />
+              <Line type="monotone" dataKey="MA7" hide={trendLegend.hidden('MA7')} name="7-bucket moving avg" stroke="#0F172A" strokeWidth={1.75} strokeDasharray="6 4" dot={false} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
 
+        <p className="text-[10px] text-slate-400 font-semibold mt-2.5 flex items-center gap-1">
+          Click a legend label to hide that series <InfoTip k="legendToggle" />
+        </p>
+
         {(boosts.length > 0 || suspected.length > 0) && (
-          <div className="mt-3 flex flex-wrap items-center gap-4 text-[10px] font-bold text-slate-400">
+          <div className="mt-2 flex flex-wrap items-center gap-4 text-[10px] font-bold text-slate-400">
             {hasPaid && (
               <span className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded bg-pink-500/20 border border-pink-300 inline-block" /> paid boost window
@@ -1293,19 +1336,23 @@ export function AnalysisTab({
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-5">
             <div>
               <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+                <Layers className="w-4 h-4 text-slate-400" />
                 Traffic Attribution <InfoTip k="attribution" />
               </h3>
               <p className="text-xs text-slate-400 font-medium mt-0.5">
                 How much of the growth in {rangeLabel} was bought, gifted by Dribbble, or earned
               </p>
             </div>
-            <Seg>
-              {A.METRIC_KEYS.map((m) => (
-                <SegBtn key={m} active={attrMetric === m} onClick={() => setAttrMetric(m)}>
-                  {METRIC_META[m].label}
-                </SegBtn>
-              ))}
-            </Seg>
+            <div className="flex items-center gap-2">
+              <LegendResetHint anyHidden={attrLegend.anyHidden} reset={attrLegend.reset} />
+              <Seg>
+                {A.METRIC_KEYS.map((m) => (
+                  <SegBtn key={m} active={attrMetric === m} onClick={() => setAttrMetric(m)}>
+                    {METRIC_META[m].label}
+                  </SegBtn>
+                ))}
+              </Seg>
+            </div>
           </div>
 
           {/* Share bar */}
@@ -1353,10 +1400,10 @@ export function AnalysisTab({
                 <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 600 }} tickLine={false} axisLine={{ stroke: '#E2E8F0' }} interval="preserveStartEnd" minTickGap={24} />
                 <YAxis tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 600 }} tickLine={false} axisLine={false} tickFormatter={(v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v))} />
                 <Tooltip contentStyle={chartTooltipStyle} formatter={(v: any, n: any) => [Number(v).toLocaleString(), n]} />
-                <Legend wrapperStyle={{ fontSize: 11, fontWeight: 700 }} />
-                <Bar dataKey="Organic" stackId="a" name="Organic" fill="#10B981" fillOpacity={0.8} maxBarSize={26} />
-                <Bar dataKey="Featured" stackId="a" name="Featured (free)" fill="#6366F1" fillOpacity={0.85} maxBarSize={26} />
-                <Bar dataKey="Paid" stackId="a" name="Boosted (paid)" fill="#EA4C89" fillOpacity={0.9} radius={[4, 4, 0, 0]} maxBarSize={26} />
+                <Legend {...attrLegend.legendProps} />
+                <Bar dataKey="Organic" stackId="a" hide={attrLegend.hidden('Organic')} name="Organic" fill="#10B981" fillOpacity={0.8} maxBarSize={26} />
+                <Bar dataKey="Featured" stackId="a" hide={attrLegend.hidden('Featured')} name="Featured (free)" fill="#6366F1" fillOpacity={0.85} maxBarSize={26} />
+                <Bar dataKey="Paid" stackId="a" hide={attrLegend.hidden('Paid')} name="Boosted (paid)" fill="#EA4C89" fillOpacity={0.9} radius={[4, 4, 0, 0]} maxBarSize={26} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -1372,15 +1419,19 @@ export function AnalysisTab({
         <div className="flex items-start justify-between mb-5">
           <div>
             <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+              <Activity className="w-4 h-4 text-slate-400" />
               Engagement Rate &amp; Views <InfoTip k="engagement" />
             </h3>
             <p className="text-xs text-slate-400 font-medium mt-0.5">
               How well each day&rsquo;s new views converted into likes / saves / comments · {rangeLabel}
             </p>
           </div>
-          <span className="text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 max-w-[260px] hidden md:block">
-            High views + low rate ⇒ paid / feed traffic · Low views + high rate ⇒ small but engaged audience
-          </span>
+          <div className="flex items-center gap-2">
+            <LegendResetHint anyHidden={engLegend.anyHidden} reset={engLegend.reset} />
+            <span className="text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 max-w-[260px] hidden md:block">
+              High views + low rate ⇒ paid / feed traffic · Low views + high rate ⇒ small but engaged audience
+            </span>
+          </div>
         </div>
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
@@ -1390,24 +1441,170 @@ export function AnalysisTab({
               <YAxis yAxisId="views" tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 600 }} tickLine={false} axisLine={false} tickFormatter={(v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v))} />
               <YAxis yAxisId="rate" orientation="right" unit="%" tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 600 }} tickLine={false} axisLine={false} />
               <Tooltip contentStyle={chartTooltipStyle} formatter={(v: any, n: any) => [String(n).includes('Rate') ? `${v}%` : Number(v).toLocaleString(), n]} />
-              <Legend wrapperStyle={{ fontSize: 11, fontWeight: 700 }} />
-              <Bar yAxisId="views" dataKey="ViewsGained" name="Views gained" fill="#3B82F6" fillOpacity={0.25} radius={[4, 4, 0, 0]} maxBarSize={26} />
-              <Line yAxisId="rate" type="monotone" dataKey="EngagementRate" name="Engagement rate" stroke="#0F172A" strokeWidth={2.25} dot={false} />
-              <Line yAxisId="rate" type="monotone" dataKey="LikeRate" name="Like rate" stroke="#EA4C89" strokeWidth={1.75} dot={false} />
-              <Line yAxisId="rate" type="monotone" dataKey="SaveRate" name="Save rate" stroke="#8B5CF6" strokeWidth={1.75} strokeDasharray="4 3" dot={false} />
+              <Legend {...engLegend.legendProps} />
+              <Bar yAxisId="views" dataKey="ViewsGained" hide={engLegend.hidden('ViewsGained')} name="Views gained" fill="#3B82F6" fillOpacity={0.25} radius={[4, 4, 0, 0]} maxBarSize={26} />
+              <Line yAxisId="rate" type="monotone" dataKey="EngagementRate" hide={engLegend.hidden('EngagementRate')} name="Engagement rate" stroke="#0F172A" strokeWidth={2.25} dot={false} />
+              <Line yAxisId="rate" type="monotone" dataKey="LikeRate" hide={engLegend.hidden('LikeRate')} name="Like rate" stroke="#EA4C89" strokeWidth={1.75} dot={false} />
+              <Line yAxisId="rate" type="monotone" dataKey="SaveRate" hide={engLegend.hidden('SaveRate')} name="Save rate" stroke="#8B5CF6" strokeWidth={1.75} strokeDasharray="4 3" dot={false} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* ===================== BEST DAYS + HEATMAP ROW ===================== */}
+      {/* ————— MOMENTUM & PACE ————— */}
+      <div className="pt-2">
+        <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.14em]">Momentum & pace</h2>
+        <p className="text-[11px] text-slate-400 font-medium mt-0.5">Whether growth is speeding up or slowing down, overall and shot by shot</p>
+        <div className="h-px bg-gradient-to-r from-slate-200 to-transparent mt-2.5" />
+      </div>
+
+      {/* ===================== MOMENTUM ===================== */}
+      <div className={`${CARD} p-6`}>
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-5">
+          <div>
+            <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+              <Gauge className="w-4 h-4 text-slate-400" />
+              Momentum <InfoTip k="momentum" />
+            </h3>
+            <p className="text-xs text-slate-400 font-medium mt-0.5">
+              {momentum.enough
+                ? `Daily rate in the last ${momentum.recentDays} days vs the previous ${momentum.olderDays}`
+                : 'Needs a wider range to compare two halves'}
+            </p>
+          </div>
+
+          {/* Portfolio-level gauge */}
+          {portfolioMomentum && (
+            <div className="flex items-center gap-4 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3">
+              <div className="text-right">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Was</p>
+                <p className="text-sm font-black text-slate-500 font-mono">
+                  {Math.round(portfolioMomentum.prevRate).toLocaleString()}
+                </p>
+              </div>
+              <div
+                className={`flex flex-col items-center px-3 py-1 rounded-xl ${
+                  (portfolioMomentum.pct ?? 0) >= 0 ? 'bg-emerald-50' : 'bg-red-50'
+                }`}
+              >
+                {(portfolioMomentum.pct ?? 0) >= 0 ? (
+                  <TrendingUp className="w-4 h-4 text-emerald-600" />
+                ) : (
+                  <TrendingDown className="w-4 h-4 text-red-500" />
+                )}
+                <span
+                  className={`text-[11px] font-black font-mono ${
+                    (portfolioMomentum.pct ?? 0) >= 0 ? 'text-emerald-700' : 'text-red-600'
+                  }`}
+                >
+                  {portfolioMomentum.pct === null
+                    ? '—'
+                    : `${portfolioMomentum.pct >= 0 ? '+' : ''}${portfolioMomentum.pct.toFixed(0)}%`}
+                </span>
+              </div>
+              <div>
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Now</p>
+                <p className="text-sm font-black text-slate-800 font-mono">
+                  {Math.round(portfolioMomentum.nowRate).toLocaleString()}
+                </p>
+              </div>
+              <span className="text-[9px] font-bold text-slate-400 leading-tight max-w-[54px]">
+                views / day
+              </span>
+            </div>
+          )}
+        </div>
+
+        {!momentum.enough ? (
+          <p className="text-xs text-slate-400 font-medium py-14 text-center">
+            Select a wider range (at least 4 usable days) to compare momentum.
+          </p>
+        ) : momentumBars.length === 0 ? (
+          <p className="text-xs text-slate-400 font-medium py-14 text-center">
+            No shot changed pace between the two halves of this range.
+          </p>
+        ) : (
+          <div style={{ height: Math.max(220, momentumBars.length * 30 + 30) }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={momentumBars} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.grid} horizontal={false} />
+                <XAxis
+                  type="number"
+                  tick={{ fontSize: 10, fill: C.muted, fontWeight: 600 }}
+                  tickLine={false}
+                  axisLine={{ stroke: C.axis }}
+                  tickFormatter={(v: number) => (v > 0 ? `+${compact(v)}` : compact(v))}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  width={165}
+                  tick={{ fontSize: 10, fill: C.label, fontWeight: 700 }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <ReferenceLine x={0} stroke="#CBD5E1" strokeWidth={1.5} />
+                <Tooltip
+                  cursor={{ fill: '#F8FAFC' }}
+                  content={({ payload }: any) => {
+                    const d = payload && payload[0] && payload[0].payload;
+                    if (!d) return null;
+                    return (
+                      <div style={chartTooltipStyle as any} className="p-2.5 max-w-[250px]">
+                        <p className="font-extrabold text-slate-800 text-[11px] leading-snug">{d.full}</p>
+                        <p className="text-[10px] text-slate-500 font-semibold mt-1">
+                          {d.prevRate} → <span className="text-slate-800 font-bold">{d.nowRate}</span> views/day
+                        </p>
+                        <p
+                          className={`text-[10px] font-bold ${
+                            d.delta >= 0 ? 'text-emerald-600' : 'text-red-500'
+                          }`}
+                        >
+                          {d.delta >= 0 ? '+' : ''}
+                          {d.delta}/day
+                          {d.pct !== null && ` (${d.pct >= 0 ? '+' : ''}${d.pct.toFixed(0)}%)`}
+                        </p>
+                      </div>
+                    );
+                  }}
+                />
+                <Bar dataKey="delta" radius={[4, 4, 4, 4]} maxBarSize={16} isAnimationActive={false}>
+                  {momentumBars.map((d) => (
+                    <Cell key={d.url} fill={d.delta >= 0 ? C.organic : '#F87171'} fillOpacity={0.9} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center gap-x-5 gap-y-1.5">
+          <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
+            <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /> gaining pace
+          </span>
+          <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
+            <span className="w-2.5 h-2.5 rounded-sm bg-red-400" /> losing pace
+          </span>
+          <span className="text-[10px] text-slate-400 font-semibold ml-auto">
+            Change in average views earned per day between the two halves of the range
+          </span>
+        </div>
+      </div>
+
+      {/* ————— TIMING & RHYTHM ————— */}
+      <div className="pt-2">
+        <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.14em]">Timing & rhythm</h2>
+        <p className="text-[11px] text-slate-400 font-medium mt-0.5">When the audience shows up, and how publishing cadence relates to returns</p>
+        <div className="h-px bg-gradient-to-r from-slate-200 to-transparent mt-2.5" />
+      </div>
+
       <section className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* Best days of the week */}
         <div className={`${CARD} p-6`}>
           <div className="flex flex-col gap-3 mb-4">
             <div className="flex items-start justify-between gap-2">
               <div>
                 <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+                  <CalendarDays className="w-4 h-4 text-slate-400" />
                   Best Days of the Week <InfoTip k="bestDays" />
                 </h3>
                 <p className="text-xs text-slate-400 font-medium mt-0.5">
@@ -1507,11 +1704,11 @@ export function AnalysisTab({
           )}
         </div>
 
-        {/* Heatmap */}
         <div className={`${CARD} p-6`}>
           <div className="flex items-start justify-between gap-2 mb-4">
             <div>
               <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+                <Gauge className="w-4 h-4 text-slate-400" />
                 Daily Activity Heatmap <InfoTip k="heatmap" />
               </h3>
               <p className="text-xs text-slate-400 font-medium mt-0.5">
@@ -1629,9 +1826,94 @@ export function AnalysisTab({
         </div>
       </section>
 
-      {/* ===================== LIFECYCLE + MOMENTUM ===================== */}
       <section className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* Shot lifecycle */}
+        <div className={`${CARD} p-6`}>
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+            <div>
+              <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+                <CalendarDays className="w-4 h-4 text-slate-400" />
+                Posting Cadence vs Performance <InfoTip k="cadence" />
+              </h3>
+              <p className="text-xs text-slate-400 font-medium mt-0.5">
+                {cadenceMode === 'normalized'
+                  ? 'Shots per month vs views each earns per day of life — fair across ages'
+                  : 'Shots per month vs raw lifetime views each earned'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <LegendResetHint anyHidden={cadenceLegend.anyHidden} reset={cadenceLegend.reset} />
+              <Seg>
+                <SegBtn active={cadenceMode === 'normalized'} onClick={() => setCadenceMode('normalized')}>
+                  Per day
+                </SegBtn>
+                <SegBtn active={cadenceMode === 'raw'} onClick={() => setCadenceMode('raw')}>
+                  Lifetime
+                </SegBtn>
+              </Seg>
+            </div>
+          </div>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={postingCadence} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid {...gridProps} />
+                <XAxis
+                  dataKey="name"
+                  tick={{ fontSize: 10, fill: C.muted, fontWeight: 600 }}
+                  tickLine={false}
+                  axisLine={{ stroke: C.axis }}
+                />
+                <YAxis
+                  yAxisId="left"
+                  allowDecimals={false}
+                  tick={{ fontSize: 10, fill: C.muted, fontWeight: 600 }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tick={{ fontSize: 10, fill: C.muted, fontWeight: 600 }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={compact}
+                />
+                <Tooltip
+                  cursor={{ fill: '#F8FAFC' }}
+                  contentStyle={chartTooltipStyle}
+                  labelStyle={tooltipLabelStyle}
+                  formatter={(v: any, n: any) => [Number(v).toLocaleString(), n]}
+                />
+                <Legend {...cadenceLegend.legendProps} />
+                <Bar
+                  yAxisId="left"
+                  dataKey="Posts"
+                  hide={cadenceLegend.hidden('Posts')}
+                  name="Posts published"
+                  fill={C.saves}
+                  fillOpacity={0.5}
+                  radius={[5, 5, 0, 0]}
+                  maxBarSize={28}
+                />
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey={cadenceMode === 'normalized' ? 'ViewsPerDay' : 'AvgViews'}
+                  hide={cadenceLegend.hidden(cadenceMode === 'normalized' ? 'ViewsPerDay' : 'AvgViews')}
+                  name={cadenceMode === 'normalized' ? 'Views / day per post' : 'Lifetime views / post'}
+                  stroke={C.views}
+                  strokeWidth={2.5}
+                  dot={{ r: 3 }}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="text-[10px] text-slate-400 font-semibold mt-2.5 leading-relaxed">
+            Answers &ldquo;does posting more often pay off?&rdquo;. <span className="font-black">Per day</span>
+            divides each shot&rsquo;s views by how long it has been live, so recent months are not punished simply
+            for being young — use it to compare months fairly.
+          </p>
+        </div>
+
         <div className={`${CARD} p-6`}>
           <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5 mb-1">
             <Activity className="w-4 h-4 text-slate-400" />
@@ -1670,173 +1952,20 @@ export function AnalysisTab({
             keeps pulling traffic. Use it to decide whether to post more often or to invest in fewer, stronger shots.
           </p>
         </div>
-
-        {/* Momentum */}
-        <div className={`${CARD} p-6`}>
-          <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5 mb-1">
-            <Gauge className="w-4 h-4 text-slate-400" />
-            Momentum <InfoTip k="momentum" />
-          </h3>
-          <p className="text-xs text-slate-400 font-medium mb-4">
-            {momentum.enough
-              ? `Recent ${momentum.recentDays} days vs previous ${momentum.olderDays} days, per shot`
-              : 'Needs a longer range to compare two halves'}
-          </p>
-
-          {!momentum.enough ? (
-            <p className="text-xs text-slate-400 font-medium py-12 text-center">
-              Select a wider range (at least 4 usable days) to compare momentum.
-            </p>
-          ) : (
-            <div className="space-y-4">
-              <div>
-                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-wider mb-2 flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3" /> Accelerating
-                </p>
-                <div className="space-y-1.5">
-                  {rising.map((r) => (
-                    <a
-                      key={r.shot.url}
-                      href={r.shot.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center justify-between gap-3 group"
-                    >
-                      <span className="text-[11px] font-bold text-slate-700 truncate group-hover:text-pink-600 transition-colors">
-                        {A.shotTitle(r.shot)}
-                      </span>
-                      <span className="text-[10px] font-mono font-bold text-slate-500 whitespace-nowrap flex-shrink-0">
-                        {r.prevRate} → <span className="text-emerald-600">{r.nowRate}</span>
-                        <span className="text-slate-400">/day</span>
-                      </span>
-                    </a>
-                  ))}
-                </div>
-              </div>
-              <div className="pt-3 border-t border-slate-100">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-                  <TrendingDown className="w-3 h-3" /> Cooling down
-                </p>
-                <div className="space-y-1.5">
-                  {cooling.map((r) => (
-                    <a
-                      key={r.shot.url}
-                      href={r.shot.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center justify-between gap-3 group"
-                    >
-                      <span className="text-[11px] font-bold text-slate-700 truncate group-hover:text-pink-600 transition-colors">
-                        {A.shotTitle(r.shot)}
-                      </span>
-                      <span className="text-[10px] font-mono font-bold text-slate-500 whitespace-nowrap flex-shrink-0">
-                        {r.prevRate} → <span className="text-slate-700">{r.nowRate}</span>
-                        <span className="text-slate-400">/day</span>
-                      </span>
-                    </a>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
       </section>
 
-      {/* ===================== CONCENTRATION + TAG MATRIX ===================== */}
-      <section className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* Portfolio concentration (Pareto) */}
-        <div className={`${CARD} p-6`}>
-          <div className="flex items-start justify-between gap-2 mb-2">
-            <div>
-              <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
-                Portfolio Concentration <InfoTip k="concentration" />
-              </h3>
-              <p className="text-xs text-slate-400 font-medium mt-0.5">
-                Share of total views delivered by the top X% of shots
-                {paretoOrganic && pareto.hasBoosts && ' · promoted shots excluded'}
-              </p>
-            </div>
-            {pareto.hasBoosts && (
-              <Seg>
-                <SegBtn active={!paretoOrganic} onClick={() => setParetoOrganic(false)}>
-                  All
-                </SegBtn>
-                <SegBtn active={paretoOrganic} onClick={() => setParetoOrganic(true)}>
-                  Organic only
-                </SegBtn>
-              </Seg>
-            )}
-          </div>
+      {/* ————— CONTENT & TAGS ————— */}
+      <div className="pt-2">
+        <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.14em]">Content & tags</h2>
+        <p className="text-[11px] text-slate-400 font-medium mt-0.5">Which subjects and tags earn reach, and which convert that reach into response</p>
+        <div className="h-px bg-gradient-to-r from-slate-200 to-transparent mt-2.5" />
+      </div>
 
-          <div className="grid grid-cols-2 gap-3 my-4">
-            <div className="bg-slate-50 border border-slate-100 rounded-xl p-3">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Top 3 shots deliver</p>
-              <p className="text-xl font-black text-slate-800 font-mono mt-0.5">{activePareto.top3.toFixed(1)}%</p>
-              {pareto.hasBoosts && (
-                <p className="text-[10px] font-semibold text-slate-400 mt-0.5">
-                  organic: <span className="font-mono text-slate-600">{pareto.organic.top3.toFixed(1)}%</span>
-                  {Math.abs(paretoDelta) >= 0.1 && (
-                    <span className={`ml-1 font-mono ${paretoDelta > 0 ? 'text-pink-500' : 'text-emerald-600'}`}>
-                      ({paretoDelta > 0 ? '+' : ''}{paretoDelta.toFixed(1)} from promotion)
-                    </span>
-                  )}
-                </p>
-              )}
-            </div>
-            <div className="bg-slate-50 border border-slate-100 rounded-xl p-3">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Top 10 shots deliver</p>
-              <p className="text-xl font-black text-slate-800 font-mono mt-0.5">{activePareto.top10.toFixed(1)}%</p>
-              {pareto.hasBoosts && (
-                <p className="text-[10px] font-semibold text-slate-400 mt-0.5">
-                  organic: <span className="font-mono text-slate-600">{pareto.organic.top10.toFixed(1)}%</span>
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="h-60">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={activePareto.curve} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                <XAxis
-                  dataKey="x"
-                  type="number"
-                  domain={[0, 100]}
-                  unit="%"
-                  tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 600 }}
-                  tickLine={false}
-                  axisLine={{ stroke: '#E2E8F0' }}
-                  label={{ value: '% of shots (best first)', position: 'insideBottom', offset: -2, fontSize: 10, fill: '#94A3B8', fontWeight: 700 }}
-                />
-                <YAxis
-                  dataKey="y"
-                  type="number"
-                  domain={[0, 100]}
-                  unit="%"
-                  tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 600 }}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <Tooltip
-                  contentStyle={chartTooltipStyle}
-                  formatter={(v: any) => [`${v}% of views`, 'Cumulative share']}
-                  labelFormatter={(l: any) => `Top ${l}% of shots`}
-                />
-                <ReferenceLine segment={[{ x: 0, y: 0 }, { x: 100, y: 100 }]} stroke="#CBD5E1" strokeDasharray="5 4" />
-                <Area type="monotone" dataKey="y" stroke="#EA4C89" strokeWidth={2.5} fill="#EA4C89" fillOpacity={0.12} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-          <p className="text-[10px] text-slate-400 font-semibold mt-2.5">
-            The dashed diagonal = perfectly even distribution. The further the pink curve bows toward the top-left,
-            the more the portfolio depends on a few hero shots.
-          </p>
-        </div>
-
-        {/* Tag performance matrix */}
+      <section className="grid grid-cols-1 gap-6">
         <div className={`${CARD} p-6`}>
           <div className="mb-2">
             <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+              <Sparkle className="w-4 h-4 text-slate-400" />
               Tag Performance Matrix <InfoTip k="tagMatrix" />
             </h3>
             <p className="text-xs text-slate-400 font-medium mt-0.5">
@@ -1934,10 +2063,97 @@ export function AnalysisTab({
         </div>
       </section>
 
-      {/* ===================== PROJECT MATRIX + VIEWS COMPOSITION (restored) ===================== */}
-      <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <section className="grid grid-cols-1 gap-6">
+      <div className={`${CARD} p-6`}>
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+          <div>
+            <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+              <Activity className="w-4 h-4 text-slate-400" />
+              Shot Performance Matrix <InfoTip k="shotMatrix" />
+            </h3>
+            <p className="text-xs text-slate-400 font-medium mt-0.5">
+              Every shot plotted by reach and response — outliers above the crowd are the viral ones
+            </p>
+          </div>
+          <Seg>
+            <SegBtn active={shotMatrixAxis === 'likes'} onClick={() => setShotMatrixAxis('likes')}>
+              Likes
+            </SegBtn>
+            <SegBtn active={shotMatrixAxis === 'saves'} onClick={() => setShotMatrixAxis('saves')}>
+              Saves
+            </SegBtn>
+          </Seg>
+        </div>
+        <div className="h-80">
+          <ResponsiveContainer width="100%" height="100%">
+            <ScatterChart margin={{ top: 15, right: 20, bottom: 10, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.grid} />
+              <XAxis
+                type="number"
+                dataKey="views"
+                name="Views"
+                tick={{ fontSize: 10, fill: C.muted, fontWeight: 600 }}
+                tickLine={false}
+                axisLine={{ stroke: C.axis }}
+                tickFormatter={compact}
+              />
+              <YAxis
+                type="number"
+                dataKey={shotMatrixAxis}
+                name={shotMatrixAxis === 'likes' ? 'Likes' : 'Saves'}
+                tick={{ fontSize: 10, fill: C.muted, fontWeight: 600 }}
+                tickLine={false}
+                axisLine={false}
+              />
+              <ZAxis type="number" range={[60, 260]} />
+              <Tooltip
+                cursor={{ strokeDasharray: '3 3' }}
+                content={({ payload }: any) => {
+                  const d = payload && payload[0] && payload[0].payload;
+                  if (!d) return null;
+                  return (
+                    <div style={chartTooltipStyle as any} className="p-2.5 max-w-[240px]">
+                      <p className="font-extrabold text-slate-800 text-[11px] leading-snug">{d.title}</p>
+                      <p className="text-slate-500 font-semibold text-[10px] mt-1">
+                        {d.views.toLocaleString()} views · {d.likes.toLocaleString()} likes ·{' '}
+                        {d.saves.toLocaleString()} saves
+                      </p>
+                      <p className="text-slate-400 font-semibold text-[10px]">{d.project}</p>
+                    </div>
+                  );
+                }}
+              />
+              <Scatter data={shotMatrix} isAnimationActive={false}>
+                {shotMatrix.map((d) => (
+                  <Cell
+                    key={d.url}
+                    fill={d.boosted ? C.paid : C.views}
+                    fillOpacity={d.boosted ? 0.85 : 0.55}
+                  />
+                ))}
+              </Scatter>
+            </ScatterChart>
+          </ResponsiveContainer>
+        </div>
+        <p className="text-[10px] text-slate-400 font-semibold mt-2.5">
+          Points far above the general cloud converted unusually well for their reach; points far to the right with a
+          low height got traffic without response.
+          {boostedUrls.size > 0 && ' Pink points are registered promotions.'}
+        </p>
+      </div>
+      </section>
+
+      {/* ————— PROJECTS & CLIENTS ————— */}
+      <div className="pt-2">
+        <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.14em]">Projects & clients</h2>
+        <p className="text-[11px] text-slate-400 font-medium mt-0.5">How each client project performs and how much of the portfolio it carries</p>
+        <div className="h-px bg-gradient-to-r from-slate-200 to-transparent mt-2.5" />
+      </div>
+
+      <section className="grid grid-cols-1 gap-6">
         <div className={`${CARD} p-6 xl:col-span-2`}>
           <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5 mb-1">
+            <Layers className="w-4 h-4 text-slate-400" />
             Project Performance Matrix <InfoTip k="projectMatrix" />
           </h3>
           <p className="text-xs text-slate-400 font-medium mb-4">
@@ -2013,56 +2229,43 @@ export function AnalysisTab({
           </div>
         </div>
 
-        {/* Top tags ROI radar */}
-        <div className={`${CARD} p-6 flex flex-col`}>
-          <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5 mb-1">
-            Top Tags ROI <InfoTip k="tagRadar" />
-          </h3>
-          <p className="text-xs text-slate-400 font-medium mb-2">Highest-yielding tags by likes earned</p>
-          {tagRadar.length < 3 ? (
-            <p className="flex-1 flex items-center justify-center text-xs text-slate-400 font-medium min-h-[220px]">
-              Needs at least 3 tags used on 2+ shots.
-            </p>
-          ) : (
-            <div className="flex-1 min-h-[240px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <RadarChart cx="50%" cy="50%" outerRadius="70%" data={tagRadar}>
-                  <PolarGrid stroke={C.grid} />
-                  <PolarAngleAxis dataKey="name" tick={{ fontSize: 10, fill: C.label, fontWeight: 600 }} />
-                  <PolarRadiusAxis angle={30} domain={[0, 'auto']} tick={false} axisLine={false} />
-                  <Radar name="Likes" dataKey="Likes" stroke={C.likes} fill={C.likes} fillOpacity={0.4} />
-                  <Tooltip
-                    contentStyle={chartTooltipStyle}
-                    labelStyle={tooltipLabelStyle}
-                    formatter={(v: any, n: any) => [Number(v).toLocaleString(), n]}
-                    labelFormatter={(l: any) => {
-                      const row = tagRadar.find((t) => t.name === l);
-                      return row ? `#${row.full} · ${row.shots} shots` : l;
-                    }}
-                  />
-                </RadarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* ===================== VIEWS COMPOSITION BY PROJECT (restored) ===================== */}
       <div className={`${CARD} p-6`}>
-        <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5 mb-1">
-          Views Composition by Project <InfoTip k="projectStack" />
-        </h3>
-        <p className="text-xs text-slate-400 font-medium mb-4">
-          Which projects carry the portfolio&rsquo;s total views over time — stacked, {rangeLabel}
-        </p>
-        {projectStack.rows.length < 2 ? (
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+          <div>
+            <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+              <Layers className="w-4 h-4 text-slate-400" />
+              Views Composition by Project <InfoTip k="projectStack" />
+            </h3>
+            <p className="text-xs text-slate-400 font-medium mt-0.5">
+              {stackMode === 'share'
+                ? `Each project's share of total views — ${rangeLabel}`
+                : `Absolute stacked views — ${rangeLabel}`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <LegendResetHint anyHidden={stackLegend.anyHidden} reset={stackLegend.reset} />
+            <Seg>
+              <SegBtn active={stackMode === 'share'} onClick={() => setStackMode('share')}>
+                Share %
+              </SegBtn>
+              <SegBtn active={stackMode === 'absolute'} onClick={() => setStackMode('absolute')}>
+                Absolute
+              </SegBtn>
+            </Seg>
+          </div>
+        </div>
+        {projectStack.share.length < 2 ? (
           <div className="h-56 flex items-center justify-center text-xs text-slate-400 font-medium text-center px-6">
             This chart needs 2+ logged days in the selected range — it fills in as daily syncs accumulate.
           </div>
         ) : (
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={projectStack.rows} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+              <AreaChart
+                data={stackMode === 'share' ? projectStack.share : projectStack.abs}
+                margin={{ top: 5, right: 10, left: 0, bottom: 0 }}
+                stackOffset={stackMode === 'share' ? 'none' : 'none'}
+              >
                 <CartesianGrid {...gridProps} />
                 <XAxis
                   dataKey="name"
@@ -2076,20 +2279,26 @@ export function AnalysisTab({
                   tick={{ fontSize: 10, fill: C.muted, fontWeight: 600 }}
                   tickLine={false}
                   axisLine={false}
-                  tickFormatter={compact}
+                  domain={stackMode === 'share' ? [0, 100] : undefined}
+                  unit={stackMode === 'share' ? '%' : undefined}
+                  tickFormatter={stackMode === 'share' ? undefined : compact}
                 />
                 <Tooltip
                   contentStyle={chartTooltipStyle}
                   labelStyle={tooltipLabelStyle}
-                  formatter={(v: any, n: any) => [Number(v).toLocaleString(), n]}
+                  formatter={(v: any, n: any) => [
+                    stackMode === 'share' ? `${Number(v).toFixed(1)}%` : Number(v).toLocaleString(),
+                    n,
+                  ]}
                 />
-                <Legend {...legendProps} />
+                <Legend {...stackLegend.legendProps} />
                 {projectStack.names.map((n) => (
                   <Area
                     key={n}
                     type="monotone"
                     dataKey={n}
                     stackId="1"
+                    hide={stackLegend.hidden(n)}
                     stroke={projectStack.colorMap[n]}
                     strokeWidth={1.5}
                     fill={projectStack.colorMap[n]}
@@ -2100,315 +2309,17 @@ export function AnalysisTab({
             </ResponsiveContainer>
           </div>
         )}
-      </div>
-
-      {/* ===================== CADENCE + VELOCITY (restored) ===================== */}
-      <section className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <div className={`${CARD} p-6`}>
-          <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5 mb-1">
-            Posting Cadence vs Performance <InfoTip k="cadence" />
-          </h3>
-          <p className="text-xs text-slate-400 font-medium mb-4">
-            Shots published per month vs the average views each one earned
-          </p>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={postingCadence} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid {...gridProps} />
-                <XAxis
-                  dataKey="name"
-                  tick={{ fontSize: 10, fill: C.muted, fontWeight: 600 }}
-                  tickLine={false}
-                  axisLine={{ stroke: C.axis }}
-                />
-                <YAxis
-                  yAxisId="left"
-                  allowDecimals={false}
-                  tick={{ fontSize: 10, fill: C.muted, fontWeight: 600 }}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  tick={{ fontSize: 10, fill: C.muted, fontWeight: 600 }}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={compact}
-                />
-                <Tooltip
-                  cursor={{ fill: '#F8FAFC' }}
-                  contentStyle={chartTooltipStyle}
-                  labelStyle={tooltipLabelStyle}
-                  formatter={(v: any, n: any) => [Number(v).toLocaleString(), n]}
-                />
-                <Legend {...legendProps} />
-                <Bar
-                  yAxisId="left"
-                  dataKey="Posts"
-                  name="Posts published"
-                  fill={C.saves}
-                  fillOpacity={0.5}
-                  radius={[5, 5, 0, 0]}
-                  maxBarSize={28}
-                />
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="AvgViews"
-                  name="Avg views / post"
-                  stroke={C.views}
-                  strokeWidth={2.5}
-                  dot={{ r: 3 }}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-          <p className="text-[10px] text-slate-400 font-semibold mt-2.5">
-            Answers &ldquo;does posting more often pay off?&rdquo; — compare cadence against per-post returns.
-          </p>
-        </div>
-
-        <div className={`${CARD} p-6`}>
-          <div className="flex items-start justify-between gap-2 mb-1">
-            <div>
-              <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
-                Period Growth Velocity <InfoTip k="velocity" />
-              </h3>
-              <p className="text-xs text-slate-400 font-medium mt-0.5">
-                Net acquisition per {rangeLabel}-sized period
-              </p>
-            </div>
-            <span className="text-[10px] font-bold text-violet-600 bg-violet-50 px-2 py-1 rounded-md border border-violet-100 flex-shrink-0">
-              Momentum
-            </span>
-          </div>
-          {velocity.length < 2 ? (
-            <p className="h-64 flex items-center justify-center text-xs text-slate-400 font-medium text-center px-6">
-              Only one period of data so far — this chart compares consecutive periods of equal length.
-            </p>
-          ) : (
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={velocity} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-                  <CartesianGrid {...gridProps} />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 10, fill: C.label, fontWeight: 700 }}
-                    tickLine={false}
-                    axisLine={{ stroke: C.axis }}
-                  />
-                  <YAxis
-                    yAxisId="v"
-                    tick={{ fontSize: 10, fill: C.muted, fontWeight: 600 }}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={compact}
-                  />
-                  <YAxis
-                    yAxisId="l"
-                    orientation="right"
-                    tick={{ fontSize: 10, fill: C.muted, fontWeight: 600 }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip
-                    cursor={{ fill: '#F8FAFC' }}
-                    contentStyle={chartTooltipStyle}
-                    labelStyle={tooltipLabelStyle}
-                    formatter={(v: any, n: any) => [Number(v).toLocaleString(), n]}
-                  />
-                  <Legend {...legendProps} />
-                  <Bar
-                    yAxisId="v"
-                    dataKey="NewViews"
-                    name="New views"
-                    fill={C.views}
-                    fillOpacity={0.75}
-                    radius={[5, 5, 0, 0]}
-                    maxBarSize={44}
-                  />
-                  <Bar
-                    yAxisId="l"
-                    dataKey="NewLikes"
-                    name="New likes"
-                    fill={C.likes}
-                    radius={[5, 5, 0, 0]}
-                    maxBarSize={44}
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* ===================== SHOT PERFORMANCE MATRIX (restored) ===================== */}
-      <div className={`${CARD} p-6`}>
-        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-          <div>
-            <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
-              Shot Performance Matrix <InfoTip k="shotMatrix" />
-            </h3>
-            <p className="text-xs text-slate-400 font-medium mt-0.5">
-              Every shot plotted by reach and response — outliers above the crowd are the viral ones
-            </p>
-          </div>
-          <Seg>
-            <SegBtn active={shotMatrixAxis === 'likes'} onClick={() => setShotMatrixAxis('likes')}>
-              Likes
-            </SegBtn>
-            <SegBtn active={shotMatrixAxis === 'saves'} onClick={() => setShotMatrixAxis('saves')}>
-              Saves
-            </SegBtn>
-          </Seg>
-        </div>
-        <div className="h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <ScatterChart margin={{ top: 15, right: 20, bottom: 10, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={C.grid} />
-              <XAxis
-                type="number"
-                dataKey="views"
-                name="Views"
-                tick={{ fontSize: 10, fill: C.muted, fontWeight: 600 }}
-                tickLine={false}
-                axisLine={{ stroke: C.axis }}
-                tickFormatter={compact}
-              />
-              <YAxis
-                type="number"
-                dataKey={shotMatrixAxis}
-                name={shotMatrixAxis === 'likes' ? 'Likes' : 'Saves'}
-                tick={{ fontSize: 10, fill: C.muted, fontWeight: 600 }}
-                tickLine={false}
-                axisLine={false}
-              />
-              <ZAxis type="number" range={[60, 260]} />
-              <Tooltip
-                cursor={{ strokeDasharray: '3 3' }}
-                content={({ payload }: any) => {
-                  const d = payload && payload[0] && payload[0].payload;
-                  if (!d) return null;
-                  return (
-                    <div style={chartTooltipStyle as any} className="p-2.5 max-w-[240px]">
-                      <p className="font-extrabold text-slate-800 text-[11px] leading-snug">{d.title}</p>
-                      <p className="text-slate-500 font-semibold text-[10px] mt-1">
-                        {d.views.toLocaleString()} views · {d.likes.toLocaleString()} likes ·{' '}
-                        {d.saves.toLocaleString()} saves
-                      </p>
-                      <p className="text-slate-400 font-semibold text-[10px]">{d.project}</p>
-                    </div>
-                  );
-                }}
-              />
-              <Scatter data={shotMatrix} isAnimationActive={false}>
-                {shotMatrix.map((d) => (
-                  <Cell
-                    key={d.url}
-                    fill={d.boosted ? C.paid : C.views}
-                    fillOpacity={d.boosted ? 0.85 : 0.55}
-                  />
-                ))}
-              </Scatter>
-            </ScatterChart>
-          </ResponsiveContainer>
-        </div>
-        <p className="text-[10px] text-slate-400 font-semibold mt-2.5">
-          Points far above the general cloud converted unusually well for their reach; points far to the right with a
-          low height got traffic without response.
-          {boostedUrls.size > 0 && ' Pink points are registered promotions.'}
+        <p className="text-[10px] text-slate-400 font-semibold mt-2.5 leading-relaxed">
+          In <span className="font-black">Share %</span> the bands always fill the chart, so a band widening means
+          that project is taking over the portfolio&rsquo;s attention. Click a legend item to hide it.
         </p>
       </div>
+      </section>
 
-      {/* ===================== TOP SHOTS ===================== */}
-      <div className={`${CARD} p-6`}>
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
-              Top Shots <InfoTip k="topShots" />
-            </h3>
-            <p className="text-xs text-slate-400 font-medium mt-0.5">
-              {topShotsMode === 'growth' ? `Ranked by growth inside ${rangeLabel}` : 'Ranked by all-time totals'}
-              {exclusion === 'paid' && ' · paid excluded'}
-              {exclusion === 'all' && ' · organic only'}
-            </p>
-          </div>
-          <Seg>
-            <SegBtn active={topShotsMode === 'growth'} onClick={() => setTopShotsMode('growth')}>
-              Growth
-            </SegBtn>
-            <SegBtn active={topShotsMode === 'total'} onClick={() => setTopShotsMode('total')}>
-              Total
-            </SegBtn>
-          </Seg>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-5">
-          {A.METRIC_KEYS.map((metric) => {
-            const meta = METRIC_META[metric];
-            const list = topShotsFor(metric);
-            const maxVal = Math.max(1, ...list.map((x) => (topShotsMode === 'growth' ? x.growth[metric] : x.totals[metric])));
-            return (
-              <div key={metric} className="border border-slate-100 rounded-2xl p-4 bg-slate-50/40">
-                <p className="text-[11px] font-black uppercase tracking-wider mb-3 flex items-center gap-1.5" style={{ color: meta.color }}>
-                  <meta.Icon className="w-3.5 h-3.5" /> {meta.label}
-                </p>
-                <div className="space-y-2.5">
-                  {list.map((x, i) => {
-                    const val = topShotsMode === 'growth' ? x.growth[metric] : x.totals[metric];
-                    return (
-                      <a
-                        key={x.shot.url}
-                        href={x.shot.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-2.5 group"
-                      >
-                        <span className="text-[10px] font-black text-slate-300 w-4 flex-shrink-0">{i + 1}</span>
-                        {x.shot.imageUrl ? (
-                          <img
-                            src={x.shot.imageUrl}
-                            alt=""
-                            referrerPolicy="no-referrer"
-                            loading="lazy"
-                            className="w-9 h-7 rounded-md object-cover border border-slate-200 flex-shrink-0"
-                          />
-                        ) : (
-                          <span className="w-9 h-7 rounded-md bg-slate-200 flex-shrink-0" />
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[11px] font-bold text-slate-700 truncate group-hover:text-pink-600 transition-colors flex items-center gap-1">
-                            {A.shotTitle(x.shot)}
-                            {x.paidInRange && (
-                              <Zap className="w-3 h-3 text-pink-500 flex-shrink-0" aria-label="Paid boost overlaps this range" />
-                            )}
-                            {x.featuredInRange && (
-                              <Star className="w-3 h-3 text-indigo-500 flex-shrink-0" aria-label="Featured in this range" />
-                            )}
-                          </p>
-                          <div className="stat-line mt-1">
-                            <div className="stat-progress" style={{ width: `${(val / maxVal) * 100}%`, background: meta.color }} />
-                          </div>
-                        </div>
-                        <span className="text-[10px] font-mono font-black text-slate-700 whitespace-nowrap flex-shrink-0">
-                          {topShotsMode === 'growth' ? '+' : ''}
-                          {val.toLocaleString()}
-                        </span>
-                      </a>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ===================== PROJECTS + ENGAGEMENT MIX ===================== */}
-      <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <section className="grid grid-cols-1 gap-6">
         <div className={`${CARD} p-6 xl:col-span-2`}>
           <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5 mb-1">
+            <Layers className="w-4 h-4 text-slate-400" />
             Project Performance <InfoTip k="projects" />
           </h3>
           <p className="text-xs text-slate-400 font-medium mb-4">
@@ -2459,12 +2370,110 @@ export function AnalysisTab({
             </table>
           </div>
         </div>
+      </section>
 
-        {/* Engagement mix donut */}
+      {/* ————— PORTFOLIO SHAPE ————— */}
+      <div className="pt-2">
+        <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.14em]">Portfolio shape</h2>
+        <p className="text-[11px] text-slate-400 font-medium mt-0.5">How concentrated the portfolio is, what the audience does, and which shots lead</p>
+        <div className="h-px bg-gradient-to-r from-slate-200 to-transparent mt-2.5" />
+      </div>
+
+      <section className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div className={`${CARD} p-6`}>
+          <div className="flex items-start justify-between gap-2 mb-2">
+            <div>
+              <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+                <Layers className="w-4 h-4 text-slate-400" />
+                Portfolio Concentration <InfoTip k="concentration" />
+              </h3>
+              <p className="text-xs text-slate-400 font-medium mt-0.5">
+                Share of total views delivered by the top X% of shots
+                {paretoOrganic && pareto.hasBoosts && ' · promoted shots excluded'}
+              </p>
+            </div>
+            {pareto.hasBoosts && (
+              <Seg>
+                <SegBtn active={!paretoOrganic} onClick={() => setParetoOrganic(false)}>
+                  All
+                </SegBtn>
+                <SegBtn active={paretoOrganic} onClick={() => setParetoOrganic(true)}>
+                  Organic only
+                </SegBtn>
+              </Seg>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 my-4">
+            <div className="bg-slate-50 border border-slate-100 rounded-xl p-3">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Top 3 shots deliver</p>
+              <p className="text-xl font-black text-slate-800 font-mono mt-0.5">{activePareto.top3.toFixed(1)}%</p>
+              {pareto.hasBoosts && (
+                <p className="text-[10px] font-semibold text-slate-400 mt-0.5">
+                  organic: <span className="font-mono text-slate-600">{pareto.organic.top3.toFixed(1)}%</span>
+                  {Math.abs(paretoDelta) >= 0.1 && (
+                    <span className={`ml-1 font-mono ${paretoDelta > 0 ? 'text-pink-500' : 'text-emerald-600'}`}>
+                      ({paretoDelta > 0 ? '+' : ''}{paretoDelta.toFixed(1)} from promotion)
+                    </span>
+                  )}
+                </p>
+              )}
+            </div>
+            <div className="bg-slate-50 border border-slate-100 rounded-xl p-3">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Top 10 shots deliver</p>
+              <p className="text-xl font-black text-slate-800 font-mono mt-0.5">{activePareto.top10.toFixed(1)}%</p>
+              {pareto.hasBoosts && (
+                <p className="text-[10px] font-semibold text-slate-400 mt-0.5">
+                  organic: <span className="font-mono text-slate-600">{pareto.organic.top10.toFixed(1)}%</span>
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="h-60">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={activePareto.curve} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                <XAxis
+                  dataKey="x"
+                  type="number"
+                  domain={[0, 100]}
+                  unit="%"
+                  tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 600 }}
+                  tickLine={false}
+                  axisLine={{ stroke: '#E2E8F0' }}
+                  label={{ value: '% of shots (best first)', position: 'insideBottom', offset: -2, fontSize: 10, fill: '#94A3B8', fontWeight: 700 }}
+                />
+                <YAxis
+                  dataKey="y"
+                  type="number"
+                  domain={[0, 100]}
+                  unit="%"
+                  tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 600 }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <Tooltip
+                  contentStyle={chartTooltipStyle}
+                  formatter={(v: any) => [`${v}% of views`, 'Cumulative share']}
+                  labelFormatter={(l: any) => `Top ${l}% of shots`}
+                />
+                <ReferenceLine segment={[{ x: 0, y: 0 }, { x: 100, y: 100 }]} stroke="#CBD5E1" strokeDasharray="5 4" />
+                <Area type="monotone" dataKey="y" stroke="#EA4C89" strokeWidth={2.5} fill="#EA4C89" fillOpacity={0.12} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="text-[10px] text-slate-400 font-semibold mt-2.5">
+            The dashed diagonal = perfectly even distribution. The further the pink curve bows toward the top-left,
+            the more the portfolio depends on a few hero shots.
+          </p>
+        </div>
+
         <div className={`${CARD} p-6 flex flex-col`}>
           <div className="flex items-start justify-between gap-2 mb-1">
             <div>
               <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+                <Activity className="w-4 h-4 text-slate-400" />
                 Engagement Mix <InfoTip k="engagementMix" />
               </h3>
               <p className="text-xs text-slate-400 font-medium mt-0.5">
@@ -2556,6 +2565,119 @@ export function AnalysisTab({
         </div>
       </section>
 
+      <section className="grid grid-cols-1 gap-6">
+      <div className={`${CARD} p-6`}>
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
+          <div>
+            <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+              <TrendingUp className="w-4 h-4 text-slate-400" />
+              Top Shots <InfoTip k="topShots" />
+            </h3>
+            <p className="text-xs text-slate-400 font-medium mt-0.5">
+              {topShotsMode === 'growth' ? `Ranked by growth inside ${rangeLabel}` : 'Ranked by all-time totals'}
+              {exclusion === 'paid' && ' · paid excluded'}
+              {exclusion === 'all' && ' · organic only'}
+            </p>
+          </div>
+          <Seg>
+            <SegBtn active={topShotsMode === 'growth'} onClick={() => setTopShotsMode('growth')}>
+              Growth
+            </SegBtn>
+            <SegBtn active={topShotsMode === 'total'} onClick={() => setTopShotsMode('total')}>
+              Total
+            </SegBtn>
+          </Seg>
+        </div>
+
+        {/* Two metrics per row so each shot gets a real thumbnail */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {A.METRIC_KEYS.map((metric) => {
+            const meta = METRIC_META[metric];
+            const list = topShotsFor(metric);
+            const maxVal = Math.max(
+              1,
+              ...list.map((x) => (topShotsMode === 'growth' ? x.growth[metric] : x.totals[metric]))
+            );
+            return (
+              <div key={metric} className="border border-slate-100 rounded-2xl p-5 bg-slate-50/40">
+                <div className="flex items-center justify-between mb-4">
+                  <p
+                    className="text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5"
+                    style={{ color: meta.color }}
+                  >
+                    <meta.Icon className="w-3.5 h-3.5" /> {meta.label}
+                  </p>
+                  <span className="text-[9px] font-bold text-slate-300 uppercase tracking-wider">
+                    top {list.length}
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  {list.map((x, i) => {
+                    const val = topShotsMode === 'growth' ? x.growth[metric] : x.totals[metric];
+                    return (
+                      <a
+                        key={x.shot.url}
+                        href={x.shot.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-3 group"
+                      >
+                        <span className="text-[11px] font-black text-slate-300 w-4 flex-shrink-0 text-center">
+                          {i + 1}
+                        </span>
+                        {x.shot.imageUrl ? (
+                          <img
+                            src={x.shot.imageUrl}
+                            alt=""
+                            referrerPolicy="no-referrer"
+                            loading="lazy"
+                            className="w-20 h-15 rounded-lg object-cover border border-slate-200 flex-shrink-0 shadow-sm group-hover:shadow-md group-hover:border-pink-200 transition-all"
+                            style={{ width: 80, height: 60 }}
+                          />
+                        ) : (
+                          <span
+                            className="rounded-lg bg-slate-200 flex-shrink-0"
+                            style={{ width: 80, height: 60 }}
+                          />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-bold text-slate-700 group-hover:text-pink-600 transition-colors flex items-start gap-1 leading-snug line-clamp-2">
+                            {A.shotTitle(x.shot)}
+                            {x.paidInRange && (
+                              <Zap
+                                className="w-3 h-3 text-pink-500 flex-shrink-0 mt-0.5"
+                                aria-label="Paid boost overlaps this range"
+                              />
+                            )}
+                            {x.featuredInRange && (
+                              <Star
+                                className="w-3 h-3 text-indigo-500 flex-shrink-0 mt-0.5"
+                                aria-label="Featured in this range"
+                              />
+                            )}
+                          </p>
+                          <div className="stat-line mt-1.5">
+                            <div
+                              className="stat-progress"
+                              style={{ width: `${(val / maxVal) * 100}%`, background: meta.color }}
+                            />
+                          </div>
+                        </div>
+                        <span className="text-[11px] font-mono font-black text-slate-700 whitespace-nowrap flex-shrink-0 self-center">
+                          {topShotsMode === 'growth' ? '+' : ''}
+                          {val.toLocaleString()}
+                        </span>
+                      </a>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      </section>
     </div>
   );
 }

@@ -33,10 +33,15 @@ import {
   Eye,
   Target,
   Sparkles,
+  CalendarDays,
+  Hash,
+  StickyNote,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 import { Shot } from '../types.ts';
 import { InfoTip } from './InfoTip.tsx';
+import { ShotPicker } from './ShotPicker.tsx';
 import { IS_STATIC } from '../api.ts';
 import {
   BoostEntry,
@@ -100,6 +105,15 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
     () => A.detectSuspectedBoosts(validShots, matrix, working).filter((s) => !dismissed.has(s.shotUrl + s.start)),
     [validShots, matrix, working, dismissed]
   );
+
+  const projectMap = useMemo(() => A.buildProjectMap(validShots), [validShots]);
+  const registeredUrls = useMemo(() => new Set(working.map((e) => e.shotUrl)), [working]);
+
+  const thumbByUrl = useMemo(() => {
+    const m = new Map<string, string | undefined>();
+    validShots.forEach((s) => m.set(s.url, s.imageUrl));
+    return m;
+  }, [validShots]);
 
   const titleByUrl = useMemo(() => {
     const m = new Map<string, string>();
@@ -200,79 +214,79 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
     <div className="space-y-6">
       {/* ============ SUMMARY ============ */}
       <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <div className={`${CARD} p-5`}>
-          <div className="flex items-center justify-between mb-2">
-            <div className="p-2 rounded-xl bg-pink-50 text-pink-500">
-              <Zap className="w-4 h-4" />
+        {[
+          {
+            key: 'promoPaid',
+            label: 'Paid campaigns',
+            Icon: Zap,
+            tone: 'text-pink-500 bg-pink-50',
+            accent: C.paid,
+            value: String(summary.paid.length),
+            sub: `+${summary.paidViews.toLocaleString()} views measured in-window`,
+          },
+          {
+            key: 'promoFeatured',
+            label: 'Features',
+            Icon: Star,
+            tone: 'text-indigo-500 bg-indigo-50',
+            accent: C.featured,
+            value: String(summary.feat.length),
+            sub: `+${summary.featViews.toLocaleString()} views measured in-window`,
+          },
+          {
+            key: 'promoImpressions',
+            label: 'Impressions bought',
+            Icon: Eye,
+            tone: 'text-blue-500 bg-blue-50',
+            accent: C.views,
+            value: summary.impressions > 0 ? compact(summary.impressions) : '—',
+            sub: summary.impressions > 0 ? 'across all paid campaigns' : 'add impressions to unlock CTR',
+          },
+          {
+            key: 'promoCtr',
+            label: 'Blended CTR',
+            Icon: Target,
+            tone: 'text-emerald-500 bg-emerald-50',
+            accent: C.organic,
+            value: summary.ctr !== null ? summary.ctr.toFixed(2) + '%' : '—',
+            sub:
+              summary.ctr !== null
+                ? `${Math.round((summary.paidViews / summary.impressions) * 1000)} views per 1k impressions`
+                : 'views gained ÷ impressions bought',
+          },
+        ].map(({ key, label, Icon, tone, accent, value, sub }) => (
+          <div key={key} className={`${CARD} p-5 relative overflow-hidden`}>
+            <span
+              className="absolute inset-x-0 top-0 h-[3px]"
+              style={{ background: `linear-gradient(90deg, ${accent}, ${accent}00)` }}
+            />
+            <div className="flex items-center justify-between mb-2.5">
+              <div className={`p-2 rounded-xl ${tone}`}>
+                <Icon className="w-4 h-4" />
+              </div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                {label} <InfoTip k={key} />
+              </span>
             </div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-              Paid campaigns <InfoTip k="promoPaid" />
-            </span>
+            <h3 className="text-2xl font-black text-slate-800 font-mono tracking-tight">{value}</h3>
+            <p className="text-[11px] font-semibold text-slate-400 mt-1.5 leading-snug">{sub}</p>
           </div>
-          <h3 className="text-2xl font-black text-slate-800 font-mono">{summary.paid.length}</h3>
-          <p className="text-[11px] font-semibold text-slate-400 mt-1">
-            +{summary.paidViews.toLocaleString()} views measured in-window
-          </p>
-        </div>
-
-        <div className={`${CARD} p-5`}>
-          <div className="flex items-center justify-between mb-2">
-            <div className="p-2 rounded-xl bg-indigo-50 text-indigo-500">
-              <Star className="w-4 h-4" />
-            </div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-              Features <InfoTip k="promoFeatured" />
-            </span>
-          </div>
-          <h3 className="text-2xl font-black text-slate-800 font-mono">{summary.feat.length}</h3>
-          <p className="text-[11px] font-semibold text-slate-400 mt-1">
-            +{summary.featViews.toLocaleString()} views measured in-window
-          </p>
-        </div>
-
-        <div className={`${CARD} p-5`}>
-          <div className="flex items-center justify-between mb-2">
-            <div className="p-2 rounded-xl bg-blue-50 text-blue-500">
-              <Eye className="w-4 h-4" />
-            </div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Impressions bought</span>
-          </div>
-          <h3 className="text-2xl font-black text-slate-800 font-mono">
-            {summary.impressions > 0 ? summary.impressions.toLocaleString() : '—'}
-          </h3>
-          <p className="text-[11px] font-semibold text-slate-400 mt-1">
-            {summary.impressions > 0 ? 'across all paid campaigns' : 'add impressions to unlock CTR'}
-          </p>
-        </div>
-
-        <div className={`${CARD} p-5`}>
-          <div className="flex items-center justify-between mb-2">
-            <div className="p-2 rounded-xl bg-emerald-50 text-emerald-500">
-              <Target className="w-4 h-4" />
-            </div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-              Blended CTR <InfoTip k="promoCtr" />
-            </span>
-          </div>
-          <h3 className="text-2xl font-black text-slate-800 font-mono">
-            {summary.ctr !== null ? summary.ctr.toFixed(2) + '%' : '—'}
-          </h3>
-          <p className="text-[11px] font-semibold text-slate-400 mt-1">
-            {summary.ctr !== null
-              ? `${Math.round((summary.paidViews / summary.impressions) * 1000)} views per 1k impressions`
-              : 'views gained ÷ impressions bought'}
-          </p>
-        </div>
+        ))}
       </section>
 
       {/* ============ DETECTED SPIKES ============ */}
       {loaded && suspected.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
-          <p className="text-sm font-extrabold text-amber-900 flex items-center gap-2 mb-1">
-            <AlertTriangle className="w-4 h-4" />
-            {suspected.length} unexplained spike{suspected.length > 1 ? 's' : ''} detected
-            <InfoTip k="promoDetected" />
-          </p>
+        <div className="bg-white border border-amber-200 rounded-2xl shadow-sm overflow-hidden">
+          <div className="px-5 py-4 bg-amber-50/70 border-b border-amber-100">
+            <p className="text-sm font-extrabold text-amber-900 flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-amber-100 text-amber-600">
+                <AlertTriangle className="w-3.5 h-3.5" />
+              </span>
+              {suspected.length} unexplained spike{suspected.length > 1 ? 's' : ''} detected
+              <InfoTip k="promoDetected" />
+            </p>
+          </div>
+          <div className="p-5">
           <p className="text-[11px] text-amber-700 font-medium mb-3.5 leading-relaxed">
             These shots gained views far above their own normal daily rate. The raw data cannot tell why — only you
             know whether it was a paid boost, an editorial feature, or an external share. Register it so the charts
@@ -284,9 +298,21 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
               return (
                 <div
                   key={key}
-                  className="flex flex-wrap items-center justify-between gap-3 bg-white/80 border border-amber-100 rounded-xl px-3.5 py-2.5"
+                  className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/70 border border-slate-100 rounded-xl px-3 py-2.5"
                 >
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 flex items-center gap-2.5">
+                    {thumbByUrl.get(s.shotUrl) ? (
+                      <img
+                        src={thumbByUrl.get(s.shotUrl)}
+                        alt=""
+                        referrerPolicy="no-referrer"
+                        loading="lazy"
+                        className="w-10 h-8 rounded-md object-cover border border-slate-200 flex-shrink-0"
+                      />
+                    ) : (
+                      <span className="w-10 h-8 rounded-md bg-slate-100 border border-slate-200 flex-shrink-0" />
+                    )}
+                    <div className="min-w-0">
                     <p className="text-[11px] font-bold text-slate-700 truncate">
                       {titleByUrl.get(s.shotUrl) || s.shotUrl}
                     </p>
@@ -295,6 +321,7 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
                       {s.end !== s.start ? ` → ${s.end}` : ''} · +{s.gained.toLocaleString()} views · peak +
                       {s.peakGain.toLocaleString()}/day
                     </p>
+                    </div>
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     <button
@@ -338,19 +365,24 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
               );
             })}
           </div>
+          </div>
         </div>
       )}
 
       {/* ============ REGISTER FORM ============ */}
-      <div className={`${CARD} p-6`}>
-        <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5 mb-1">
-          Register a promotion <InfoTip k="boosts" />
-        </h3>
-        <p className="text-xs text-slate-400 font-medium mb-4">
-          Dribbble publishes no promotion flag, so this registry is the only source of truth for boost-aware charts.
-        </p>
+      <div className={`${CARD} overflow-hidden`}>
+        <div className="px-6 pt-6 pb-5 border-b border-slate-100 bg-gradient-to-b from-slate-50/60 to-transparent">
+          <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+            Register a promotion <InfoTip k="boosts" />
+          </h3>
+          <p className="text-xs text-slate-400 font-medium mt-0.5">
+            Dribbble publishes no promotion flag, so this registry is the only source of truth for boost-aware
+            charts.
+          </p>
+        </div>
+        <div className="p-6">
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
           {(
             [
               {
@@ -373,8 +405,10 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
               key={k}
               type="button"
               onClick={() => setDraft({ ...draft, kind: k })}
-              className={`flex items-start gap-2.5 p-3.5 rounded-xl border text-left transition-all ${
-                draft.kind === k ? on : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
+              className={`flex items-start gap-3 p-4 rounded-2xl border text-left transition-all ${
+                draft.kind === k
+                  ? on + ' shadow-sm'
+                  : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50/50'
               }`}
             >
               <Icon className="w-4 h-4 flex-shrink-0 mt-0.5" />
@@ -388,44 +422,45 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <label className="block sm:col-span-2 lg:col-span-3">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Shot</span>
-            <select
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1 mb-1">
+              <ImageIcon className="w-3 h-3" /> Shot
+            </span>
+            <ShotPicker
+              shots={validShots}
               value={draft.shotUrl}
-              onChange={(e) => setDraft({ ...draft, shotUrl: e.target.value })}
-              className={inputCls + ' mt-1'}
-            >
-              <option value="">Select a shot…</option>
-              {validShots.map((s) => (
-                <option key={s.url} value={s.url}>
-                  {A.shotTitle(s)}
-                </option>
-              ))}
-            </select>
+              onChange={(url) => setDraft({ ...draft, shotUrl: url })}
+              projectOf={(url) => projectMap.get(url) || ''}
+              disabledUrls={registeredUrls}
+            />
           </label>
           <label className="block">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Start date</span>
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1 mb-1">
+              <CalendarDays className="w-3 h-3" /> Start date
+            </span>
             <input
               type="date"
               value={draft.start}
               onChange={(e) => setDraft({ ...draft, start: e.target.value })}
-              className={inputCls + ' mt-1'}
+              className={inputCls}
             />
           </label>
           <label className="block">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-              End date <span className="normal-case text-slate-400">(blank = running)</span>
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1 mb-1">
+              <CalendarDays className="w-3 h-3" /> End date
+              <span className="normal-case text-slate-400 font-semibold">(blank = running)</span>
             </span>
             <input
               type="date"
               value={draft.end}
               onChange={(e) => setDraft({ ...draft, end: e.target.value })}
-              className={inputCls + ' mt-1'}
+              className={inputCls}
             />
           </label>
           {draft.kind === 'boost' ? (
             <label className="block">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                Impressions <span className="normal-case text-slate-400">(unlocks CTR)</span>
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1 mb-1">
+                <Hash className="w-3 h-3" /> Impressions
+                <span className="normal-case text-slate-400 font-semibold">(unlocks CTR)</span>
               </span>
               <input
                 type="text"
@@ -433,31 +468,34 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
                 placeholder="e.g. 10,000"
                 value={draft.impressions}
                 onChange={(e) => setDraft({ ...draft, impressions: e.target.value })}
-                className={inputCls + ' mt-1'}
+                className={inputCls}
               />
             </label>
           ) : (
             <label className="block">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                Placement <span className="normal-case text-slate-400">(optional)</span>
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1 mb-1">
+                <Star className="w-3 h-3" /> Placement
+                <span className="normal-case text-slate-400 font-semibold">(optional)</span>
               </span>
               <input
                 type="text"
                 placeholder="e.g. Popular, Animation"
                 value={draft.placement}
                 onChange={(e) => setDraft({ ...draft, placement: e.target.value })}
-                className={inputCls + ' mt-1'}
+                className={inputCls}
               />
             </label>
           )}
           <label className="block sm:col-span-2 lg:col-span-3">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Note</span>
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1 mb-1">
+              <StickyNote className="w-3 h-3" /> Note
+            </span>
             <input
               type="text"
               placeholder="e.g. Dizno launch campaign"
               value={draft.note}
               onChange={(e) => setDraft({ ...draft, note: e.target.value })}
-              className={inputCls + ' mt-1'}
+              className={inputCls}
             />
           </label>
         </div>
@@ -469,6 +507,7 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
         >
           <Plus className="w-3.5 h-3.5" /> Add {draft.kind === 'boost' ? 'boost' : 'feature'}
         </button>
+        </div>
       </div>
 
       {/* ============ CAMPAIGN EFFICIENCY ============ */}
@@ -522,7 +561,9 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
       <div className={`${CARD} overflow-hidden`}>
         <div className="p-5 border-b border-slate-100 bg-slate-50/40 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="font-bold text-slate-800 text-base">Registry</h3>
+            <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+              Registry <InfoTip k="promoRegistry" />
+            </h3>
             <p className="text-xs text-slate-400 font-medium">
               {working.filter((e) => e.kind === 'boost').length} paid ·{' '}
               {working.filter((e) => e.kind === 'featured').length} featured
@@ -599,9 +640,22 @@ export function PromotionsPage({ shots }: { shots: Shot[] }) {
                           href={e.shotUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-xs font-bold text-slate-700 hover:text-pink-600 transition-colors"
+                          className="flex items-center gap-2.5 group"
                         >
-                          {titleByUrl.get(e.shotUrl) || e.shotUrl}
+                          {thumbByUrl.get(e.shotUrl) ? (
+                            <img
+                              src={thumbByUrl.get(e.shotUrl)}
+                              alt=""
+                              referrerPolicy="no-referrer"
+                              loading="lazy"
+                              className="w-10 h-8 rounded-md object-cover border border-slate-200 flex-shrink-0"
+                            />
+                          ) : (
+                            <span className="w-10 h-8 rounded-md bg-slate-100 border border-slate-200 flex-shrink-0" />
+                          )}
+                          <span className="text-xs font-bold text-slate-700 group-hover:text-pink-600 transition-colors line-clamp-2 max-w-[220px]">
+                            {titleByUrl.get(e.shotUrl) || e.shotUrl}
+                          </span>
                         </a>
                       </td>
                       <td className="px-3 py-3">
