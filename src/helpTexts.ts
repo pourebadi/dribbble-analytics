@@ -45,10 +45,12 @@ export const HELP: Record<string, HelpText> = {
   excludeBoosted: {
     title: 'Traffic filter',
     body:
-      'Decides which promoted traffic the charts ignore. All = raw numbers. No paid = removes Boosted Shots, ' +
-      'so you can see what your budget actually bought. Organic = also removes free exposure like Popular, ' +
-      'leaving only reach you earned. Use Per campaign to exclude one specific boost or feature instead of a ' +
-      'whole category.',
+      '"All" is the default and hides nothing — the charts show what actually happened. "No paid" removes ' +
+      'Boosted Shots so you can see what the account does without the budget. "Organic" also removes free ' +
+      'exposure like Popular. "Per campaign" is for removing one specific push rather than a whole category. ' +
+      'While any filter is on, a pink banner sits above the charts so a what-if view is never mistaken for ' +
+      'reality. Your choice is remembered the next time you open the dashboard, and it only changes the view — ' +
+      'never your data.',
   },
   attribution: {
     title: 'Traffic attribution',
@@ -378,6 +380,44 @@ export const HELP: Record<string, HelpText> = {
       'Read the line at the bottom: if most growth came from the long tail, the account is earning broadly. ' +
       'If two or three shots produced nearly all of it — especially promoted ones — the period looks better ' +
       'than it is.',
+  },
+
+  kpiRate: {
+    title: 'Engagement rate',
+    body:
+      'What share of the views you gained in this range turned into a like, save or comment. Unlike raw view ' +
+      'counts it does not grow just because a shot got promoted, so it is the cleaner read on whether the work ' +
+      'is connecting. The arrow compares it against the same length of time immediately before.',
+  },
+  kpiPace: {
+    title: 'Daily pace',
+    body:
+      'Views earned on an average day in this range, counting only days with a trustworthy reading. Comparing ' +
+      'pace rather than totals is what lets a 7-day view and a 90-day view be read side by side.',
+  },
+  kpiActive: {
+    title: 'Shots earning',
+    body:
+      'How many shots gained at least one view in this range, out of the whole portfolio. It answers a question ' +
+      'the totals hide: is the account being carried by a few pieces, or is the back catalogue still working? ' +
+      'A falling number while views hold up means the load is shifting onto fewer shots.',
+  },
+  kpiConc: {
+    title: 'Top-shot reliance',
+    body:
+      'The share of new views produced by the strongest tenth of your shots. High is not automatically bad — a ' +
+      'hit is a hit — but it tells you how much of the period rests on a few pieces, and therefore how far the ' +
+      'numbers fall when they cool off. Read it next to Portfolio Concentration.',
+  },
+  insights: {
+    title: 'What changed',
+    body:
+      'A first pass over the same data the charts use, so you do not have to read seventeen of them to find what ' +
+      'moved. Nothing here is judged against a fixed number: every claim is measured against this account\'s own ' +
+      'history, so the bar rises for a volatile profile and falls for a steady one, and it works the same on an ' +
+      'account ten times this size. Findings stay quiet when there is not enough history behind them — a thin ' +
+      'week produces fewer lines rather than shakier ones. Arrows marked → are suggested next steps; amber items ' +
+      'are things only you can resolve.',
   },
   historyLedger: {
     title: 'Daily historical ledger',

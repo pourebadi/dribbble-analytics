@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { getToken, connect as connectGithub, markRejected } from '../githubConnection.ts';
 import { 
   RefreshCw, 
   AlertCircle, 
@@ -23,7 +24,6 @@ import {
   GITHUB_REPO,
   WORKFLOW_FILE,
   getSavedGithubToken,
-  saveGithubToken,
   apiDispatchGithubWorkflow,
   apiLatestWorkflowRun,
 } from '../api.ts';
@@ -91,12 +91,12 @@ export function ProfileManager({
     } catch (e: any) {
       setGhState('error');
       setGhMessage(e?.message || 'Failed to trigger the workflow.');
-      if (/401|403|rejected/i.test(String(e?.message))) saveGithubToken('');
+      if (/401|403|rejected/i.test(String(e?.message))) markRejected();
     }
   };
 
   const handleGithubDispatch = async () => {
-    const token = getSavedGithubToken();
+    const token = getToken();
     if (!token) {
       setGhState('need_token');
       return;
@@ -107,7 +107,14 @@ export function ProfileManager({
   const handleSaveTokenAndRun = async () => {
     const t = tokenInput.trim();
     if (!t) return;
-    saveGithubToken(t);
+    // Verify and store through the shared connection, so the same credential
+    // also unlocks saving promotions and collections.
+    const res = await connectGithub(t);
+    if (!res.ok) {
+      setGhState('error');
+      setGhMessage(res.message);
+      return;
+    }
     setTokenInput('');
     await dispatchWithToken(t);
   };
