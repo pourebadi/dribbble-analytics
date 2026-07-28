@@ -62,6 +62,32 @@ async function startServer() {
     }
   });
 
+  // --- Boost registry (data/boosts.json) ------------------------------------
+  // The team's manual record of which shots ran Dribbble "Boosted Shots" and
+  // when. Public Dribbble data carries no boost flag, so this file is the only
+  // source of truth for boost-aware analytics. It lives next to the DB so the
+  // daily workflow commits it along with the rest of data/.
+  app.get('/api/boosts', (req, res) => {
+    try {
+      res.json(dbLayer.readBoosts());
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/boosts', (req, res) => {
+    const { boosts } = req.body || {};
+    if (!Array.isArray(boosts)) {
+      return res.status(400).json({ error: 'Body must be { boosts: [...] }' });
+    }
+    try {
+      const saved = dbLayer.writeBoosts(boosts);
+      res.json({ success: true, count: saved.length });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get('/api/shots', (req, res) => {
     try {
       const { profileUrl } = req.query;

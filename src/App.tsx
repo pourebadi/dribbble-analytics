@@ -50,13 +50,13 @@ function NextSyncCountdown() {
     </span>
   );
 }
-import { LayoutDashboard, LineChart, History, Cpu, Server, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, LineChart, History, Cpu, Server, ShieldCheck, Zap } from 'lucide-react';
 
 export default function App() {
   const [activeProfileUrl, setActiveProfileUrl] = useState<string | null>('https://dribbble.com/helistudio');
   const [shots, setShots] = useState<Shot[]>([]);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'analysis'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'analysis' | 'promotions'>('dashboard');
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -183,6 +183,18 @@ export default function App() {
             <LineChart className="w-4 h-4" />
             <span>Growth Analysis</span>
           </button>
+
+          <button 
+            onClick={() => setActiveTab('promotions')}
+            className={`w-full px-4 py-3 flex items-center space-x-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all border ${
+              activeTab === 'promotions' 
+                ? 'bg-pink-50/75 text-pink-600 border-pink-100/50 shadow-sm' 
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border-transparent'
+            }`}
+          >
+            <Zap className="w-4 h-4" />
+            <span>Promotions</span>
+          </button>
         </nav>
         
         <div className="p-4 border-t border-slate-100 bg-slate-50/50 space-y-3">
@@ -246,13 +258,21 @@ export default function App() {
         <header className="flex justify-between items-center mb-8 border-b border-slate-100 pb-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-800 tracking-tight">
-              {activeTab === 'dashboard' ? 'Heli Studio Portfolio' : activeTab === 'history' ? 'Historical Ledger' : 'Growth Analysis & Management Dashboard'}
+              {activeTab === 'dashboard'
+                ? 'Heli Studio Portfolio'
+                : activeTab === 'history'
+                ? 'Historical Ledger'
+                : activeTab === 'promotions'
+                ? 'Promotions & Campaign Tracking'
+                : 'Growth Analysis & Management Dashboard'}
             </h1>
             <p className="text-xs text-slate-400 font-semibold mt-0.5">
               {activeTab === 'dashboard' 
                 ? 'Dribbble Portfolio Insights & Growth Analytics Node' 
                 : activeTab === 'history' 
                 ? 'Historical daily record aggregates and account activity tracking'
+                : activeTab === 'promotions'
+                ? 'Record boosted and featured shots so growth charts can separate paid, gifted and earned reach'
                 : 'Advanced trend lines, tracking for management and social team overview'}
             </p>
           </div>
@@ -282,6 +302,7 @@ export default function App() {
           shots={shots} 
           activeProfile={profile} 
           activeTab={activeTab} 
+          onNavigate={setActiveTab}
           profileManager={
             <ProfileManager 
               onProfileSelect={setActiveProfileUrl} 

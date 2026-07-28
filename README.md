@@ -17,6 +17,61 @@ React dashboard with growth analytics. No external services required.
 - `.github/workflows/daily-scrape.yml` — GitHub Actions runs the scraper every
   day at **23:50 UTC** and commits the updated `data/` back to the repo.
 
+## Growth Analysis (rebuilt)
+The **Growth Analysis** tab is driven by a shared analytics engine
+(`src/analytics.ts`) so every chart uses the same carry-forward daily-log math:
+
+- **Range engine** — 7d / 14d / 30d / 90d / All / Custom, applied to every chart.
+- **Collections filter** — narrow everything to one client/project (parsed from
+  the `Title | Project` naming convention) or to a keyword set such as every
+  shot whose title contains *System*.
+- **Promotion Registry** (`data/boosts.json`) — Dribbble exposes no promotion
+  flag publicly, so the team records promoted shots by hand. Two kinds are
+  tracked separately because they are not comparable:
+  - **Boosted (paid)** — a bought impression budget (1,000–250,000) that runs
+    until spent. Logging the purchased impressions unlocks
+    **CTR = views gained in window ÷ impressions**.
+  - **Featured (free)** — editorial or algorithmic exposure (Popular, category
+    spotlight). No cost and no budget, but it inflates a shot exactly like a
+    boost, so it must not be mistaken for organic growth. Optional *placement*
+    field records where it was featured.
+
+  The dashboard also **auto-detects** unregistered spikes (a shot gaining ≥5×
+  its own median daily views) and offers them for one-click registration — you
+  choose whether the spike was paid or featured.
+- **Traffic filter** — `All` / `No paid` / `Organic`. Time-series charts subtract
+  only the gains earned inside the relevant promotion windows; rankings and
+  concentration drop the promoted shots entirely.
+- **Traffic Attribution** — stacked split of range growth into
+  Boosted / Featured / Organic, so "how much of our reach did we actually earn?"
+  is answerable at a glance. Appears once a promotion is registered.
+- **Growth Trend** — daily-gain vs cumulative modes, 7-bucket moving average,
+  boost windows shaded on the chart, automatic weekly bucketing on long ranges.
+- **Engagement Rate & Views** — dual axis: bars for views gained, lines for
+  engagement / like / save rates, so paid traffic (high views, low rate) is
+  visually distinct from organic traffic.
+- **Best Days of the Week** — computed from *actual daily growth per weekday*
+  (not publish dates), with Avg/Total and Views/Engagement toggles and a
+  "limited data" warning while the log is still short. The legacy
+  publish-weekday view is kept as a second mode.
+- **Daily activity heatmap** — weekday + month labels, colour legend, metric
+  picker, baseline marker and boost/spike rings.
+- **Portfolio Concentration** — Lorenz/Pareto curve against a perfectly-even
+  diagonal, with all-vs-organic comparison.
+- **Tag Performance Matrix** — bubble chart of reach (avg views/shot) ×
+  conversion (likes per 100 views) × usage (bubble size), plus a totals table.
+
+The **History** tab now shows day-over-day deltas, the actual UTC run time of
+each snapshot, and explanatory badges for anomalies (baseline day, unusual
+growth, mass-unlike events, short scrape gaps).
+
+Every card carries a `?` InfoTip; all help copy lives in `src/helpTexts.ts`.
+
+Verify the analytics math against the committed snapshot at any time:
+```bash
+npm run verify
+```
+
 ## Local development
 ```bash
 npm install
