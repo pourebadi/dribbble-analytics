@@ -50,15 +50,46 @@ function NextSyncCountdown() {
     </span>
   );
 }
-import { LayoutDashboard, LineChart, History, Cpu, Server, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, LineChart, History, Cpu, Server, ShieldCheck, Zap, Folder } from 'lucide-react';
+import { hasUnsavedWork } from './registryStore.ts';
 
 export default function App() {
   const [activeProfileUrl, setActiveProfileUrl] = useState<string | null>('https://dribbble.com/helistudio');
   const [shots, setShots] = useState<Shot[]>([]);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'analysis'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'analysis' | 'promotions' | 'collections'>('dashboard');
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Guard against losing registry edits. Promotions and Collections keep drafts
+   * in a shared store so navigating between tabs is safe, but closing the tab
+   * would still discard anything not yet written to the repository.
+   */
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!hasUnsavedWork()) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
+  /**
+   * Display name for the tracked account. Derived from the profile URL rather
+   * than hardcoded, so the dashboard reads correctly for whichever Dribbble
+   * account it is pointed at.
+   */
+  const profileHandle = React.useMemo(() => {
+    const url = profile?.url || activeProfileUrl || '';
+    try {
+      const handle = new URL(url).pathname.replace(/\//g, '') || 'Dribbble';
+      return handle.charAt(0).toUpperCase() + handle.slice(1);
+    } catch {
+      return 'Dribbble';
+    }
+  }, [profile?.url, activeProfileUrl]);
 
   const targetUrl = 'https://dribbble.com/helistudio';
 
@@ -144,7 +175,7 @@ export default function App() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.172-1.172a4 4 0 115.656 5.656L10 17.657"/>
             </svg>
           </div>
-          <span className="font-bold text-lg text-slate-800 tracking-tight">Heli Technology</span>
+          <span className="font-bold text-lg text-slate-800 tracking-tight">{profileHandle}</span>
         </div>
         
         <nav className="flex-1 px-3 space-y-1">
@@ -183,6 +214,30 @@ export default function App() {
             <LineChart className="w-4 h-4" />
             <span>Growth Analysis</span>
           </button>
+
+          <button 
+            onClick={() => setActiveTab('promotions')}
+            className={`w-full px-4 py-3 flex items-center space-x-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all border ${
+              activeTab === 'promotions' 
+                ? 'bg-pink-50/75 text-pink-600 border-pink-100/50 shadow-sm' 
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border-transparent'
+            }`}
+          >
+            <Zap className="w-4 h-4" />
+            <span>Promotions</span>
+          </button>
+
+          <button 
+            onClick={() => setActiveTab('collections')}
+            className={`w-full px-4 py-3 flex items-center space-x-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all border ${
+              activeTab === 'collections' 
+                ? 'bg-pink-50/75 text-pink-600 border-pink-100/50 shadow-sm' 
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border-transparent'
+            }`}
+          >
+            <Folder className="w-4 h-4" />
+            <span>Collections</span>
+          </button>
         </nav>
         
         <div className="p-4 border-t border-slate-100 bg-slate-50/50 space-y-3">
@@ -193,7 +248,7 @@ export default function App() {
                 <div className="fixed inset-0 z-40" onClick={() => setProfileMenuOpen(false)} />
                 <div className="absolute bottom-full mb-2 left-0 right-0 z-50 bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-200/70 p-2 space-y-0.5">
                   <div className="px-3 py-2 border-b border-slate-100 mb-1">
-                    <p className="text-xs font-extrabold text-slate-800">Heli Studio</p>
+                    <p className="text-xs font-extrabold text-slate-800">{profileHandle}</p>
                     <p className="text-[10px] text-slate-400 font-semibold">Signed in as <span className="font-mono text-slate-500">{AUTH_USER}</span></p>
                   </div>
                   <a href={activeProfileUrl || 'https://dribbble.com/helistudio'} target="_blank" rel="noreferrer"
@@ -222,7 +277,7 @@ export default function App() {
                 HS
               </div>
               <div className="flex-1 min-w-0 text-left">
-                <p className="text-xs font-extrabold text-slate-800 truncate">Heli Studio</p>
+                <p className="text-xs font-extrabold text-slate-800 truncate">{profileHandle}</p>
                 <p className="text-[10px] text-slate-400 font-semibold truncate">Design & Growth Team</p>
               </div>
               <Settings className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
@@ -246,13 +301,25 @@ export default function App() {
         <header className="flex justify-between items-center mb-8 border-b border-slate-100 pb-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-800 tracking-tight">
-              {activeTab === 'dashboard' ? 'Heli Studio Portfolio' : activeTab === 'history' ? 'Historical Ledger' : 'Growth Analysis & Management Dashboard'}
+              {activeTab === 'dashboard'
+                ? `${profileHandle} Portfolio`
+                : activeTab === 'history'
+                ? 'Historical Ledger'
+                : activeTab === 'promotions'
+                ? 'Promotions & Campaign Tracking'
+                : activeTab === 'collections'
+                ? 'Collections & Project Grouping'
+                : 'Growth Analysis & Management Dashboard'}
             </h1>
             <p className="text-xs text-slate-400 font-semibold mt-0.5">
               {activeTab === 'dashboard' 
                 ? 'Dribbble Portfolio Insights & Growth Analytics Node' 
                 : activeTab === 'history' 
                 ? 'Historical daily record aggregates and account activity tracking'
+                : activeTab === 'promotions'
+                ? 'Record boosted and featured shots so growth charts can separate paid, gifted and earned reach'
+                : activeTab === 'collections'
+                ? 'Define which shots belong to which project — every project chart follows this grouping'
                 : 'Advanced trend lines, tracking for management and social team overview'}
             </p>
           </div>
@@ -282,6 +349,7 @@ export default function App() {
           shots={shots} 
           activeProfile={profile} 
           activeTab={activeTab} 
+          onNavigate={setActiveTab}
           profileManager={
             <ProfileManager 
               onProfileSelect={setActiveProfileUrl} 
